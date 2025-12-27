@@ -1,0 +1,25 @@
+{
+  "name": "zenuxs-oauth",
+  "version": "2.2.0",
+  "main": "zenux-oauth.cjs.js",
+  "module": "zenux-oauth.esm.js",
+  "browser": "zenux-oauth.js",
+  "types": "zenux-oauth.d.ts",
+  "exports": {
+    ".": {
+      "import": "./zenux-oauth.esm.js",
+      "require": "./zenux-oauth.cjs.js",
+      "browser": "./zenux-oauth.js",
+      "default": "./zenux-oauth.js"
+    },
+    "./callback": {
+      "browser": "./callback.html",
+      "default": "./callback.html"
+    }
+  },
+  "files": [
+    "*.js",
+    "*.d.ts",
+    "callback.html"
+  ]
+}

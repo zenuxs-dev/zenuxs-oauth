@@ -1611,4 +1611,4 @@ if (Environment.isBrowser) {
     }
 }(typeof window !== 'undefined' ? window : this, function () {
     return ZenuxOAuth;
-}));
+}));    
