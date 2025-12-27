@@ -1,16 +1,7 @@
 import { OAuthClient as CoreOAuthClient } from '../core/client.js';
 import { OAuthError } from '../core/errors.js';
-import { generateRandomString, generatePKCEChallenge } from '../core/pkce.js';
-import { buildAuthorizationUrl } from '../core/urls.js';
-import { parseTokenResponse, isTokenExpired, decodeJWT, validateTokenStructure } from '../core/tokens.js';
+import { decodeJWT } from '../core/tokens.js';
 import { createFetchFunction } from './utils.js';
-
-// Re-export core functionality
-export { CoreOAuthClient as OAuthClient }; // Export as OAuthClient
-export { OAuthError } from '../core/errors.js';
-export { generateRandomString, generatePKCEChallenge } from '../core/pkce.js';
-export { buildAuthorizationUrl } from '../core/urls.js';
-export { parseTokenResponse, isTokenExpired, decodeJWT, validateTokenStructure } from '../core/tokens.js';
 
 /**
  * Server-side OAuth client with no browser dependencies
@@ -19,10 +10,14 @@ export class ServerOAuthClient extends CoreOAuthClient {
   constructor(config = {}) {
     super(config);
     this.serverConfig = config;
+    this.fetchImpl = null;
   }
 
   async getFetch() {
-    return await createFetchFunction(this.serverConfig.fetch);
+    if (!this.fetchImpl) {
+      this.fetchImpl = await createFetchFunction(this.serverConfig.fetch);
+    }
+    return this.fetchImpl;
   }
 
   async exchangeCodeForTokens(code, codeVerifier, options = {}) {
@@ -45,9 +40,8 @@ export class ServerOAuthClient extends CoreOAuthClient {
     }
 
     const tokenData = await response.json();
-    return parseTokenResponse(tokenData);
+    return this.constructor.parseTokenResponse(tokenData);
   }
-
   async refreshToken(refreshToken, options = {}) {
     const fetchImpl = await this.getFetch();
     const refreshRequest = await super.refreshToken(refreshToken, options);

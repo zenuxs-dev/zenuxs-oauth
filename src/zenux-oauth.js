@@ -1,652 +1,858 @@
-/**
- * ZenuxOAuth - Enhanced OAuth 2.0 PKCE Client Library
- * @version 2.2.0
- * @license MIT
- * @environment Web, React, Node.js
- */
+// ZenuxOAuth 2.3.0 - Universal OAuth 2.0 PKCE Client Library
+// Supports: Browser, Node.js, React, Next.js, React Native, Web Workers
+// Single-file implementation - No dependencies
 
-// Environment detection utilities
-const Environment = {
-    isBrowser: typeof window !== 'undefined' && typeof document !== 'undefined',
-    isReactNative: typeof navigator !== 'undefined' && navigator.product === 'ReactNative',
-    isNode: typeof process !== 'undefined' && process.versions && process.versions.node,
-    isWebWorker: typeof importScripts !== 'undefined',
-    getEnvironment() {
-        if (this.isReactNative) return 'react-native';
-        if (this.isNode) return 'node';
-        if (this.isWebWorker) return 'web-worker';
-        if (this.isBrowser) return 'browser';
-        return 'unknown';
+(function (global, factory) {
+    // UMD Pattern - Universal Module Definition
+    if (typeof define === 'function' && define.amd) {
+        // AMD
+        define([], factory);
+    } else if (typeof module !== 'undefined' && module.exports) {
+        // CommonJS/Node
+        module.exports = factory();
+    } else {
+        // Browser global
+        global.ZenuxOAuth = factory();
     }
-};
+}(typeof self !== 'undefined' ? self : this, function () {
+    'use strict';
 
-class ZenuxOAuthError extends Error {
-    constructor(message, code, details = {}) {
-        super(message);
-        this.name = 'ZenuxOAuthError';
-        this.code = code;
-        this.details = details;
-        this.timestamp = new Date().toISOString();
-        this.environment = Environment.getEnvironment();
+    // ==================== ENVIRONMENT DETECTION ====================
+    const Environment = {
+        isBrowser: typeof window !== 'undefined' && typeof document !== 'undefined',
+        isReactNative: typeof navigator !== 'undefined' && navigator.product === 'ReactNative',
+        isNode: typeof process !== 'undefined' && process.versions && process.versions.node,
+        isWebWorker: typeof importScripts !== 'undefined',
+        isNextJs: typeof process !== 'undefined' && process.env && 
+                  (process.env.NEXT_RUNTIME === 'nodejs' || process.env.NEXT_PHASE),
+        getEnvironment() {
+            if (this.isReactNative) return 'react-native';
+            if (this.isNode) return 'node';
+            if (this.isWebWorker) return 'web-worker';
+            if (this.isNextJs) return 'nextjs';
+            if (this.isBrowser) return 'browser';
+            return 'unknown';
+        }
+    };
+
+    // ==================== ERROR CLASS ====================
+    class ZenuxOAuthError extends Error {
+        constructor(message, code, details = {}) {
+            super(message);
+            this.name = 'ZenuxOAuthError';
+            this.code = code;
+            this.details = details;
+            this.timestamp = new Date().toISOString();
+            this.environment = Environment.getEnvironment();
+        }
+
+        toJSON() {
+            return {
+                name: this.name,
+                code: this.code,
+                message: this.message,
+                details: this.details,
+                timestamp: this.timestamp,
+                environment: this.environment
+            };
+        }
     }
 
-    toJSON() {
-        return {
-            name: this.name,
-            code: this.code,
-            message: this.message,
-            details: this.details,
-            timestamp: this.timestamp,
-            environment: this.environment
-        };
-    }
-}
+    // ==================== CRYPTO UTILITIES ====================
+    const CryptoUtils = {
+        // Generate random string for PKCE
+        generateRandomString(length = 128) {
+            const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+            
+            if (Environment.isNode && typeof crypto !== 'undefined') {
+                // Node.js with Web Crypto API
+                const randomBytes = crypto.randomBytes(length);
+                return Array.from(randomBytes, byte => 
+                    charset[byte % charset.length]
+                ).join('');
+            }
+            
+            if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+                // Browser/Web Worker
+                const randomValues = new Uint8Array(length);
+                crypto.getRandomValues(randomValues);
+                return Array.from(randomValues, byte => 
+                    charset[byte % charset.length]
+                ).join('');
+            }
+            
+            // Fallback for older environments
+            let result = '';
+            for (let i = 0; i < length; i++) {
+                result += charset.charAt(Math.floor(Math.random() * charset.length));
+            }
+            return result;
+        },
 
-class ZenuxOAuth {
-    constructor(config = {}) {
-        this.validateConfig(config);
-
-        // Default fetch function based on environment
-        let defaultFetch = null;
-        if (typeof fetch !== 'undefined') {
-            defaultFetch = Environment.isBrowser ? fetch.bind(window) : fetch;
-        } else {
+        // SHA-256 hash for PKCE
+        async sha256(plain) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(plain);
+            
+            if (Environment.isNode) {
+                // Node.js crypto module
+                if (typeof require !== 'undefined') {
+                    const nodeCrypto = require('crypto');
+                    const hash = nodeCrypto.createHash('sha256').update(data).digest();
+                    return this.base64UrlEncode(hash);
+                } else if (typeof crypto !== 'undefined' && crypto.subtle) {
+                    // Node.js with Web Crypto API
+                    const hash = await crypto.subtle.digest('SHA-256', data);
+                    return this.base64UrlEncode(new Uint8Array(hash));
+                }
+            }
+            
+            if (typeof crypto !== 'undefined' && crypto.subtle) {
+                // Browser/Web Worker
+                const hash = await crypto.subtle.digest('SHA-256', data);
+                return this.base64UrlEncode(new Uint8Array(hash));
+            }
+            
             throw new ZenuxOAuthError(
-                'Fetch is not available in this environment. Please provide a fetchFunction',
+                'SHA-256 not supported. Requires Web Crypto API.',
+                'CRYPTO_NOT_SUPPORTED'
+            );
+        },
+
+        base64UrlEncode(buffer) {
+            let base64 = '';
+            
+            if (Environment.isNode && Buffer.isBuffer(buffer)) {
+                base64 = buffer.toString('base64');
+            } else if (buffer instanceof Uint8Array) {
+                if (typeof btoa !== 'undefined') {
+                    base64 = btoa(String.fromCharCode(...buffer));
+                } else if (Environment.isNode) {
+                    base64 = Buffer.from(buffer).toString('base64');
+                }
+            }
+            
+            return base64
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=/g, '');
+        }
+    };
+
+    // ==================== STORAGE MANAGER ====================
+    class StorageManager {
+        constructor(config = {}) {
+            this.prefix = config.storagePrefix || 'zenux_oauth_';
+            this.type = config.storage || this.detectStorageType();
+            this.memory = new Map();
+        }
+
+        detectStorageType() {
+            if (!Environment.isBrowser) return 'memory';
+            try {
+                localStorage.setItem('test', 'test');
+                localStorage.removeItem('test');
+                return 'localStorage';
+            } catch {
+                try {
+                    sessionStorage.setItem('test', 'test');
+                    sessionStorage.removeItem('test');
+                    return 'sessionStorage';
+                } catch {
+                    return 'memory';
+                }
+            }
+        }
+
+        get(key) {
+            const fullKey = this.prefix + key;
+            
+            if (this.type === 'memory') {
+                return this.memory.get(fullKey);
+            }
+            
+            if (!Environment.isBrowser) return null;
+            
+            try {
+                const storage = this.type === 'localStorage' ? localStorage : sessionStorage;
+                return storage.getItem(fullKey);
+            } catch (e) {
+                return this.memory.get(fullKey);
+            }
+        }
+
+        set(key, value) {
+            const fullKey = this.prefix + key;
+            
+            if (this.type === 'memory') {
+                this.memory.set(fullKey, value);
+                return;
+            }
+            
+            if (!Environment.isBrowser) {
+                this.memory.set(fullKey, value);
+                return;
+            }
+            
+            try {
+                const storage = this.type === 'localStorage' ? localStorage : sessionStorage;
+                storage.setItem(fullKey, value);
+            } catch (e) {
+                this.memory.set(fullKey, value);
+            }
+        }
+
+        remove(key) {
+            const fullKey = this.prefix + key;
+            
+            this.memory.delete(fullKey);
+            
+            if (!Environment.isBrowser) return;
+            
+            try {
+                const storage = this.type === 'localStorage' ? localStorage : sessionStorage;
+                storage.removeItem(fullKey);
+            } catch (e) {
+                // Ignore storage errors
+            }
+        }
+
+        clear() {
+            this.memory.clear();
+            
+            if (!Environment.isBrowser) return;
+            
+            try {
+                const storage = this.type === 'localStorage' ? localStorage : sessionStorage;
+                const keysToRemove = [];
+                
+                for (let i = 0; i < storage.length; i++) {
+                    const key = storage.key(i);
+                    if (key.startsWith(this.prefix)) {
+                        keysToRemove.push(key);
+                    }
+                }
+                
+                keysToRemove.forEach(key => storage.removeItem(key));
+            } catch (e) {
+                // Ignore storage errors
+            }
+        }
+    }
+
+    // ==================== HTTP CLIENT ====================
+    class HttpClient {
+        constructor(config = {}) {
+            this.config = config;
+            this.fetch = this.getFetchFunction();
+        }
+
+        getFetchFunction() {
+            // Use provided fetch function
+            if (this.config.fetchFunction) return this.config.fetchFunction;
+            
+            // Next.js server components
+            if (typeof globalThis !== 'undefined' && globalThis.fetch) {
+                return globalThis.fetch.bind(globalThis);
+            }
+            
+            // Node.js 18+ or with node-fetch
+            if (typeof fetch !== 'undefined') {
+                return fetch;
+            }
+            
+            // React Native
+            if (Environment.isReactNative) {
+                try {
+                    return global.fetch || require('react-native').fetch;
+                } catch {
+                    // Fall through
+                }
+            }
+            
+            throw new ZenuxOAuthError(
+                'Fetch is not available. Please provide a fetchFunction.',
                 'FETCH_UNAVAILABLE'
             );
         }
 
-        this.config = {
-            authServer: config.authServer || 'https://api.auth.zenuxs.in',
-            clientId: config.clientId,
-            redirectUri: config.redirectUri || this.getDefaultRedirectUri(),
-            scopes: config.scopes || 'openid profile email',
-            authorizeEndpoint: config.authorizeEndpoint || '/oauth/authorize',
-            tokenEndpoint: config.tokenEndpoint || '/oauth/token',
-            userinfoEndpoint: config.userinfoEndpoint || '/oauth/userinfo',
-            revokeEndpoint: config.revokeEndpoint || '/oauth/revoke',
-            storage: config.storage || (Environment.isBrowser ? 'sessionStorage' : 'memory'),
-            storagePrefix: config.storagePrefix || 'zenux_oauth_',
-            usePKCE: config.usePKCE !== false,
-            useCSRF: config.useCSRF !== false && Environment.isBrowser,
-            validateState: config.validateState !== false,
-            autoRefresh: config.autoRefresh !== false && Environment.isBrowser,
-            refreshThreshold: config.refreshThreshold || 300,
-            popupWidth: config.popupWidth || 600,
-            popupHeight: config.popupHeight || 700,
-            extraAuthParams: config.extraAuthParams || {},
-            extraTokenParams: config.extraTokenParams || {},
-            onBeforeLogin: config.onBeforeLogin || null,
-            onAfterLogin: config.onAfterLogin || null,
-            onBeforeLogout: config.onBeforeLogout || null,
-            onAfterLogout: config.onAfterLogout || null,
-            debug: config.debug || false,
-            fetchFunction: config.fetchFunction || defaultFetch,
-            environment: Environment.getEnvironment()
-        };
+        async request(url, options = {}) {
+            try {
+                const response = await this.fetch(url, {
+                    headers: {
+                        'Accept': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                });
 
-        this.session = {
-            codeVerifier: null,
-            state: null,
-            tokens: null,
-            csrfToken: null,
-            nonce: null
-        };
+                if (!response.ok) {
+                    let errorDetails;
+                    try {
+                        errorDetails = await response.json();
+                    } catch {
+                        errorDetails = await response.text();
+                    }
 
-        // Memory storage for Node.js environment
-        this.memoryStorage = new Map();
+                    throw new ZenuxOAuthError(
+                        `HTTP ${response.status}: ${response.statusText}`,
+                        'HTTP_ERROR',
+                        {
+                            status: response.status,
+                            statusText: response.statusText,
+                            url,
+                            details: errorDetails
+                        }
+                    );
+                }
 
-        this.eventHandlers = {
-            login: [],
-            logout: [],
-            tokenRefresh: [],
-            error: [],
-            tokenExpired: [],
-            stateChange: []
-        };
-
-        this._refreshInterval = null;
-        this._pendingRequests = new Map();
-
-        // Fixed: Added the missing init method
-        this.init();
-
-        if (Environment.isBrowser && !Environment.isReactNative) {
-            window.ZenuxOAuthInstance = this;
-        }
-    }
-
-    // Fixed: Added the missing init method
-    init() {
-        this.debugLog('Initializing ZenuxOAuth');
-        this.setupAutoRefresh();
-        
-        // Load any existing tokens from storage
-        this.loadTokens();
-        
-        this.debugLog('ZenuxOAuth initialized successfully', {
-            environment: Environment.getEnvironment(),
-            clientId: this.config.clientId,
-            authServer: this.config.authServer
-        });
-    }
-
-    validateConfig(config) {
-        const errors = [];
-
-        if (!config.clientId) {
-            errors.push('clientId is required');
-        }
-
-        if (config.redirectUri && !this.isValidUrl(config.redirectUri)) {
-            errors.push('redirectUri must be a valid URL');
-        }
-
-        if (config.authServer && !this.isValidUrl(config.authServer)) {
-            errors.push('authServer must be a valid URL');
-        }
-
-        if (Environment.isBrowser && config.storage && !['localStorage', 'sessionStorage', 'memory'].includes(config.storage)) {
-            errors.push('storage must be either "localStorage", "sessionStorage", or "memory"');
-        }
-
-        if (!Environment.isBrowser && config.storage && config.storage !== 'memory') {
-            errors.push('Only "memory" storage is supported in non-browser environments');
-        }
-
-        if (config.refreshThreshold && (config.refreshThreshold < 0 || config.refreshThreshold > 3600)) {
-            errors.push('refreshThreshold must be between 0 and 3600 seconds');
-        }
-
-        if (!config.fetchFunction && typeof fetch === 'undefined') {
-            errors.push('fetchFunction is required as fetch is not available in this environment');
-        }
-
-        if (errors.length > 0) {
-            throw new ZenuxOAuthError(
-                `Invalid configuration: ${errors.join(', ')}`,
-                'INVALID_CONFIG',
-                { errors, environment: Environment.getEnvironment() }
-            );
-        }
-    }
-
-    isValidUrl(string) {
-        try {
-            new URL(string);
-            return true;
-        } catch (_) {
-            return false;
-        }
-    }
-
-    getDefaultRedirectUri() {
-        if (Environment.isBrowser && window.location) {
-            return `${window.location.origin}/callback.html`;
-        }
-        return 'http://localhost/callback.html';
-    }
-
-    updateConfig(newConfig) {
-        Object.assign(this.config, newConfig);
-        this.debugLog('Configuration updated', newConfig);
-    }
-
-    on(event, handler) {
-        if (!this.eventHandlers[event]) {
-            this.eventHandlers[event] = [];
-        }
-        this.eventHandlers[event].push(handler);
-        return this;
-    }
-
-    off(event, handler) {
-        if (this.eventHandlers[event]) {
-            if (handler) {
-                this.eventHandlers[event] = this.eventHandlers[event].filter(h => h !== handler);
-            } else {
-                this.eventHandlers[event] = [];
+                return response;
+            } catch (error) {
+                if (error instanceof ZenuxOAuthError) throw error;
+                
+                throw new ZenuxOAuthError(
+                    `Network error: ${error.message}`,
+                    'NETWORK_ERROR',
+                    { originalError: error.message, url }
+                );
             }
         }
-        return this;
+
+        async getJSON(url, options = {}) {
+            const response = await this.request(url, {
+                ...options,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                }
+            });
+            return response.json();
+        }
+
+        async postForm(url, data, options = {}) {
+            const formData = new URLSearchParams();
+            Object.entries(data).forEach(([key, value]) => {
+                formData.append(key, value);
+            });
+
+            const response = await this.request(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    ...options.headers
+                },
+                body: formData.toString(),
+                ...options
+            });
+            return response.json();
+        }
     }
 
-    emit(event, data) {
-        this.debugLog(`Event emitted: ${event}`, data);
+    // ==================== MAIN OAUTH CLASS ====================
+    class ZenuxOAuth {
+        constructor(config = {}) {
+            this.validateConfig(config);
+            
+            this.config = {
+                // Required
+                clientId: config.clientId,
+                
+                // Server configuration
+                authServer: config.authServer || 'https://api.auth.zenuxs.in',
+                authorizeEndpoint: config.authorizeEndpoint || '/oauth/authorize',
+                tokenEndpoint: config.tokenEndpoint || '/oauth/token',
+                userinfoEndpoint: config.userinfoEndpoint || '/oauth/userinfo',
+                revokeEndpoint: config.revokeEndpoint || '/oauth/revoke',
+                
+                // Client configuration
+                redirectUri: config.redirectUri || this.getDefaultRedirectUri(),
+                scopes: config.scopes || 'openid profile email',
+                usePKCE: config.usePKCE !== false,
+                useCSRF: config.useCSRF !== false && Environment.isBrowser,
+                validateState: config.validateState !== false,
+                
+                // Storage
+                storage: config.storage,
+                storagePrefix: config.storagePrefix || 'zenux_oauth_',
+                
+                // Auto refresh
+                autoRefresh: config.autoRefresh !== false,
+                refreshThreshold: config.refreshThreshold || 300, // 5 minutes
+                
+                // UI
+                popupWidth: config.popupWidth || 600,
+                popupHeight: config.popupHeight || 700,
+                
+                // Extras
+                extraAuthParams: config.extraAuthParams || {},
+                extraTokenParams: config.extraTokenParams || {},
+                
+                // Hooks
+                onBeforeLogin: config.onBeforeLogin || null,
+                onAfterLogin: config.onAfterLogin || null,
+                onBeforeLogout: config.onBeforeLogout || null,
+                onAfterLogout: config.onAfterLogout || null,
+                
+                // Debug
+                debug: config.debug || false,
+                
+                // Platform-specific
+                fetchFunction: config.fetchFunction || null,
+                crypto: config.crypto || null,
+                
+                environment: Environment.getEnvironment()
+            };
 
-        if (this.eventHandlers[event]) {
-            this.eventHandlers[event].forEach(handler => {
-                try {
-                    handler(data);
-                } catch (error) {
-                    console.error(`Error in ${event} handler:`, error);
-                }
+            // Initialize components
+            this.storage = new StorageManager(this.config);
+            this.http = new HttpClient(this.config);
+            this.session = this.loadSession();
+            
+            // Event system
+            this.events = {
+                login: [],
+                logout: [],
+                tokenRefresh: [],
+                error: [],
+                tokenExpired: []
+            };
+            
+            // Auto-refresh setup
+            this.refreshInterval = null;
+            this.setupAutoRefresh();
+            
+            // Debug log
+            this.debugLog('ZenuxOAuth initialized', {
+                environment: this.config.environment,
+                clientId: this.config.clientId,
+                redirectUri: this.config.redirectUri
             });
         }
 
-        if (event !== 'stateChange') {
-            this.emit('stateChange', { event, data, timestamp: Date.now() });
-        }
-    }
-
-    generateRandomString(length = 128) {
-        const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-        
-        if (Environment.isNode) {
-            // Use crypto module in Node.js
-            if (typeof crypto !== 'undefined' && crypto.randomBytes) {
-                return crypto.randomBytes(length)
-                    .toString('base64')
-                    .replace(/[+/=]/g, '')
-                    .slice(0, length)
-                    .split('')
-                    .map(char => charset.charAt(char.charCodeAt(0) % charset.length))
-                    .join('');
+        validateConfig(config) {
+            const errors = [];
+            
+            if (!config.clientId) {
+                errors.push('clientId is required');
+            }
+            
+            if (config.redirectUri && !this.isValidUrl(config.redirectUri)) {
+                errors.push('redirectUri must be a valid URL');
+            }
+            
+            if (config.authServer && !this.isValidUrl(config.authServer)) {
+                errors.push('authServer must be a valid URL');
+            }
+            
+            if (errors.length > 0) {
+                throw new ZenuxOAuthError(
+                    `Invalid configuration: ${errors.join(', ')}`,
+                    'INVALID_CONFIG'
+                );
             }
         }
 
-        if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-            const randomValues = new Uint8Array(length);
-            crypto.getRandomValues(randomValues);
-            return Array.from(randomValues, byte => charset[byte % charset.length]).join('');
+        isValidUrl(string) {
+            try {
+                new URL(string);
+                return true;
+            } catch {
+                return false;
+            }
         }
 
-        // Fallback for environments without crypto
-        let result = '';
-        for (let i = 0; i < length; i++) {
-            result += charset.charAt(Math.floor(Math.random() * charset.length));
-        }
-        return result;
-    }
-
-    async sha256(plain) {
-        // Browser environment - use Web Crypto API
-        if (typeof crypto !== 'undefined' && crypto.subtle) {
-            const encoder = new TextEncoder();
-            const data = encoder.encode(plain);
-            const hash = await crypto.subtle.digest('SHA-256', data);
-            return btoa(String.fromCharCode(...new Uint8Array(hash)))
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-                .replace(/=/g, '');
-        }
-        
-        // Node.js environment with Web Crypto API (Node 15+)
-        if (Environment.isNode && typeof crypto !== 'undefined' && crypto.subtle) {
-            const encoder = new TextEncoder();
-            const data = encoder.encode(plain);
-            const hash = await crypto.subtle.digest('SHA-256', data);
-            return Buffer.from(hash).toString('base64')
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-                .replace(/=/g, '');
+        getDefaultRedirectUri() {
+            if (Environment.isBrowser && window.location) {
+                // Remove query parameters and hash
+                const baseUrl = window.location.origin + window.location.pathname;
+                // Check if we're already on a callback page
+                if (baseUrl.includes('callback')) {
+                    return baseUrl;
+                }
+                return baseUrl.replace(/\/$/, '') + '/callback';
+            }
+            return 'http://localhost:3000/callback';
         }
 
-        throw new ZenuxOAuthError(
-            'SHA-256 not supported in this environment. Web Crypto API is required.',
-            'CRYPTO_NOT_SUPPORTED'
-        );
-    }
-
-    async login(options = {}) {
-        try {
-            if (this.config.onBeforeLogin) {
-                await this.config.onBeforeLogin();
+        loadSession() {
+            const session = {
+                codeVerifier: null,
+                state: null,
+                tokens: null,
+                csrfToken: null,
+                nonce: null
+            };
+            
+            // Load tokens from storage
+            const tokensStr = this.storage.get('tokens');
+            if (tokensStr) {
+                try {
+                    session.tokens = JSON.parse(tokensStr);
+                } catch (e) {
+                    this.storage.remove('tokens');
+                }
             }
+            
+            return session;
+        }
 
-            this.debugLog('Starting OAuth flow', { ...options, environment: Environment.getEnvironment() });
+        // ==================== OAUTH FLOW ====================
+        async login(options = {}) {
+            try {
+                // Call before login hook
+                if (this.config.onBeforeLogin) {
+                    await this.config.onBeforeLogin();
+                }
 
-            // For non-browser environments, return authorization URL
-            if (!Environment.isBrowser) {
-                const authData = await this.getAuthorizationUrl(options);
-                return {
-                    type: 'authorization_url',
-                    url: authData.url,
-                    state: authData.state,
-                    codeVerifier: authData.codeVerifier
-                };
+                this.debugLog('Starting OAuth login', options);
+
+                // Generate PKCE code verifier if enabled
+                if (this.config.usePKCE) {
+                    this.session.codeVerifier = CryptoUtils.generateRandomString(128);
+                    this.session.codeChallenge = await CryptoUtils.sha256(this.session.codeVerifier);
+                    this.storage.set('code_verifier', this.session.codeVerifier);
+                }
+
+                // Generate state and nonce
+                this.session.state = CryptoUtils.generateRandomString(32);
+                this.session.nonce = CryptoUtils.generateRandomString(32);
+                
+                this.storage.set('state', this.session.state);
+                this.storage.set('nonce', this.session.nonce);
+
+                if (this.config.useCSRF) {
+                    this.session.csrfToken = CryptoUtils.generateRandomString(32);
+                    this.storage.set('csrf_token', this.session.csrfToken);
+                }
+
+                // Build authorization URL
+                const authUrl = this.buildAuthUrl(options);
+
+                this.debugLog('Authorization URL', authUrl);
+
+                // Handle different login methods
+                if (Environment.isBrowser) {
+                    if (options.popup) {
+                        return this.loginWithPopup(authUrl, options);
+                    } else if (options.silent) {
+                        return this.loginSilent(authUrl, options);
+                    } else {
+                        window.location.href = authUrl;
+                        return null;
+                    }
+                } else {
+                    // Non-browser environments return URL for manual redirect
+                    return {
+                        type: 'authorization_url',
+                        url: authUrl,
+                        state: this.session.state,
+                        codeVerifier: this.session.codeVerifier,
+                        nonce: this.session.nonce
+                    };
+                }
+            } catch (error) {
+                this.handleError(error, 'login');
+                throw error;
             }
+        }
 
-            if (this.config.usePKCE) {
-                this.session.codeVerifier = this.generateRandomString(128);
-                this.session.codeChallenge = await this.sha256(this.session.codeVerifier);
-                this.setStorage('code_verifier', this.session.codeVerifier);
-            }
-
-            this.session.state = this.generateRandomString(32);
-            this.setStorage('state', this.session.state);
-
-            this.session.nonce = this.generateRandomString(32);
-            this.setStorage('nonce', this.session.nonce);
-
-            if (this.config.useCSRF) {
-                this.session.csrfToken = this.generateRandomString(32);
-                this.setStorage('csrf_token', this.session.csrfToken);
-            }
-
+        buildAuthUrl(options = {}) {
             const params = new URLSearchParams({
                 client_id: this.config.clientId,
                 redirect_uri: options.redirectUri || this.config.redirectUri,
-                scope: options.scopes || this.config.scopes,
                 response_type: 'code',
+                scope: options.scopes || this.config.scopes,
                 state: this.session.state,
                 nonce: this.session.nonce,
                 ...this.config.extraAuthParams,
                 ...(options.extraParams || {})
             });
 
-            if (this.config.usePKCE) {
+            if (this.config.usePKCE && this.session.codeChallenge) {
                 params.append('code_challenge', this.session.codeChallenge);
                 params.append('code_challenge_method', 'S256');
             }
 
-            const authUrl = `${this.config.authServer}${this.config.authorizeEndpoint}?${params.toString()}`;
-
-            this.debugLog('Authorization URL built', authUrl);
-
-            if (options.popup) {
-                return this.loginWithPopup(authUrl, options);
-            } else if (options.silent) {
-                return this.loginSilent(authUrl, options);
-            } else {
-                window.location.href = authUrl;
-                return null;
-            }
-        } catch (error) {
-            this.debugLog('Login error', error);
-            this.emit('error', error);
-            throw error;
+            return `${this.config.authServer}${this.config.authorizeEndpoint}?${params.toString()}`;
         }
-    }
 
-    loginWithPopup(authUrl, options = {}) {
-        return new Promise((resolve, reject) => {
-            if (!Environment.isBrowser) {
-                const error = new ZenuxOAuthError(
-                    'Popup login only available in browser',
-                    'POPUP_NOT_AVAILABLE'
-                );
-                this.emit('error', error);
-                reject(error);
-                return;
-            }
-
-            const width = options.popupWidth || this.config.popupWidth;
-            const height = options.popupHeight || this.config.popupHeight;
-            const left = (window.screen.width - width) / 2;
-            const top = (window.screen.height - height) / 2;
-
-            const popup = window.open(
-                authUrl,
-                options.popupName || 'zenux_oauth',
-                `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
-            );
-
-            if (!popup) {
-                const error = new ZenuxOAuthError(
-                    'Popup blocked. Please allow popups and try again.',
-                    'POPUP_BLOCKED'
-                );
-                this.emit('error', error);
-                reject(error);
-                return;
-            }
-
-            const timeout = setTimeout(() => {
-                cleanup();
-                reject(new ZenuxOAuthError('Login timeout', 'LOGIN_TIMEOUT'));
-            }, options.timeout || 300000);
-
-            const checkClosed = setInterval(() => {
-                if (popup.closed) {
-                    cleanup();
-                    const tokens = this.getTokens();
-                    if (tokens) {
-                        resolve(tokens);
-                    } else {
-                        reject(new ZenuxOAuthError('Authentication cancelled', 'AUTH_CANCELLED'));
-                    }
+        loginWithPopup(authUrl, options = {}) {
+            return new Promise((resolve, reject) => {
+                if (!Environment.isBrowser) {
+                    reject(new ZenuxOAuthError('Popup login requires browser', 'POPUP_NOT_SUPPORTED'));
+                    return;
                 }
-            }, 1000);
 
-            const messageHandler = async (event) => {
-                if (event.data && event.data.type === 'zenux_oauth_success') {
-                    cleanup();
-                    this.session.tokens = event.data.tokens;
-                    this.setStorage('tokens', JSON.stringify(this.session.tokens));
-                    popup.close();
+                const width = options.popupWidth || this.config.popupWidth;
+                const height = options.popupHeight || this.config.popupHeight;
+                const left = (window.screen.width - width) / 2;
+                const top = (window.screen.height - height) / 2;
 
-                    if (this.config.onAfterLogin) {
-                        await this.config.onAfterLogin(this.session.tokens);
+                const popup = window.open(
+                    authUrl,
+                    options.popupName || 'zenux_auth',
+                    `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
+                );
+
+                if (!popup) {
+                    reject(new ZenuxOAuthError('Popup blocked by browser', 'POPUP_BLOCKED'));
+                    return;
+                }
+
+                const pollTimer = setInterval(() => {
+                    if (popup.closed) {
+                        clearInterval(pollTimer);
+                        clearTimeout(timeout);
+                        window.removeEventListener('message', messageHandler);
+                        
+                        const tokens = this.getTokens();
+                        if (tokens) {
+                            resolve(tokens);
+                        } else {
+                            reject(new ZenuxOAuthError('Authentication cancelled', 'AUTH_CANCELLED'));
+                        }
                     }
+                }, 1000);
 
-                    this.emit('login', this.session.tokens);
-                    resolve(this.session.tokens);
-                } else if (event.data && event.data.type === 'zenux_oauth_error') {
-                    cleanup();
+                const timeout = setTimeout(() => {
+                    clearInterval(pollTimer);
                     popup.close();
-                    const error = new ZenuxOAuthError(
-                        event.data.error,
-                        event.data.code || 'AUTH_ERROR',
-                        event.data.details
+                    window.removeEventListener('message', messageHandler);
+                    reject(new ZenuxOAuthError('Login timeout', 'LOGIN_TIMEOUT'));
+                }, options.timeout || 300000); // 5 minutes
+
+                const messageHandler = (event) => {
+                    if (event.data?.type === 'zenux_oauth_callback') {
+                        clearInterval(pollTimer);
+                        clearTimeout(timeout);
+                        popup.close();
+                        window.removeEventListener('message', messageHandler);
+                        
+                        if (event.data.success) {
+                            this.handleTokens(event.data.tokens);
+                            resolve(event.data.tokens);
+                        } else {
+                            reject(new ZenuxOAuthError(
+                                event.data.error || 'Authentication failed',
+                                event.data.code || 'AUTH_FAILED'
+                            ));
+                        }
+                    }
+                };
+
+                window.addEventListener('message', messageHandler);
+            });
+        }
+
+        loginSilent(authUrl, options = {}) {
+            return new Promise((resolve, reject) => {
+                if (!Environment.isBrowser) {
+                    reject(new ZenuxOAuthError('Silent login requires browser', 'SILENT_NOT_SUPPORTED'));
+                    return;
+                }
+
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.src = authUrl;
+
+                const timeout = setTimeout(() => {
+                    cleanup();
+                    reject(new ZenuxOAuthError('Silent login timeout', 'SILENT_TIMEOUT'));
+                }, options.timeout || 30000);
+
+                const messageHandler = (event) => {
+                    if (event.data?.type === 'zenux_oauth_callback') {
+                        cleanup();
+                        if (event.data.success) {
+                            this.handleTokens(event.data.tokens);
+                            resolve(event.data.tokens);
+                        } else {
+                            reject(new ZenuxOAuthError(event.data.error, 'SILENT_AUTH_FAILED'));
+                        }
+                    }
+                };
+
+                const cleanup = () => {
+                    clearTimeout(timeout);
+                    window.removeEventListener('message', messageHandler);
+                    if (iframe.parentNode) {
+                        iframe.parentNode.removeChild(iframe);
+                    }
+                };
+
+                window.addEventListener('message', messageHandler);
+                document.body.appendChild(iframe);
+            });
+        }
+
+        async handleCallback(callbackUrl = null) {
+            try {
+                this.debugLog('Handling OAuth callback');
+
+                let url;
+                if (callbackUrl) {
+                    url = callbackUrl;
+                } else if (Environment.isBrowser) {
+                    url = window.location.href;
+                } else {
+                    throw new ZenuxOAuthError(
+                        'Callback URL required in non-browser environment',
+                        'CALLBACK_URL_REQUIRED'
                     );
-                    this.emit('error', error);
-                    reject(error);
                 }
-            };
 
-            const cleanup = () => {
-                clearInterval(checkClosed);
-                clearTimeout(timeout);
-                window.removeEventListener('message', messageHandler);
-            };
+                const urlObj = new URL(url);
+                const params = new URLSearchParams(urlObj.search);
 
-            window.addEventListener('message', messageHandler);
-        });
-    }
+                const code = params.get('code');
+                const state = params.get('state');
+                const error = params.get('error');
+                const errorDescription = params.get('error_description');
 
-    loginSilent(authUrl, options = {}) {
-        return new Promise((resolve, reject) => {
-            if (!Environment.isBrowser || !document) {
-                reject(new ZenuxOAuthError('Silent login only available in browser', 'SILENT_NOT_AVAILABLE'));
-                return;
-            }
-
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            iframe.src = authUrl;
-
-            const timeout = setTimeout(() => {
-                cleanup();
-                reject(new ZenuxOAuthError('Silent login timeout', 'SILENT_TIMEOUT'));
-            }, options.timeout || 60000);
-
-            const messageHandler = (event) => {
-                if (event.data && event.data.type === 'zenux_oauth_success') {
-                    cleanup();
-                    this.session.tokens = event.data.tokens;
-                    this.setStorage('tokens', JSON.stringify(this.session.tokens));
-                    this.emit('login', this.session.tokens);
-                    resolve(this.session.tokens);
-                } else if (event.data && event.data.type === 'zenux_oauth_error') {
-                    cleanup();
-                    reject(new ZenuxOAuthError(event.data.error, 'SILENT_ERROR'));
+                if (error) {
+                    throw new ZenuxOAuthError(
+                        errorDescription || error,
+                        'OAUTH_ERROR',
+                        { error, errorDescription }
+                    );
                 }
-            };
 
-            const cleanup = () => {
-                clearTimeout(timeout);
-                window.removeEventListener('message', messageHandler);
-                if (iframe.parentNode) {
-                    iframe.parentNode.removeChild(iframe);
+                if (!code) {
+                    throw new ZenuxOAuthError('No authorization code received', 'NO_CODE');
                 }
-            };
 
-            window.addEventListener('message', messageHandler);
-            document.body.appendChild(iframe);
-        });
-    }
-
-    async handleCallback(callbackUrl = null) {
-        try {
-            this.debugLog('Handling OAuth callback');
-
-            let url;
-            if (callbackUrl) {
-                url = callbackUrl;
-            } else if (Environment.isBrowser) {
-                url = window.location.href;
-            } else {
-                throw new ZenuxOAuthError(
-                    'No callback URL provided and not in browser environment',
-                    'NO_CALLBACK_URL'
-                );
-            }
-
-            const urlObj = new URL(url);
-            const params = new URLSearchParams(urlObj.search);
-
-            const code = params.get('code');
-            const state = params.get('state');
-            const error = params.get('error');
-            const errorDescription = params.get('error_description');
-
-            this.debugLog('Callback parameters', { code: !!code, state, error });
-
-            if (error) {
-                throw new ZenuxOAuthError(
-                    errorDescription || error,
-                    'OAUTH_ERROR',
-                    { error, errorDescription }
-                );
-            }
-
-            if (!code) {
-                throw new ZenuxOAuthError('No authorization code received', 'NO_AUTH_CODE');
-            }
-
-            if (this.config.validateState) {
-                const storedState = this.getStorage('state');
-                if (state !== storedState) {
-                    throw new ZenuxOAuthError('State parameter mismatch', 'STATE_MISMATCH');
+                // Validate state
+                if (this.config.validateState) {
+                    const storedState = this.storage.get('state');
+                    if (state !== storedState) {
+                        throw new ZenuxOAuthError('State mismatch', 'STATE_MISMATCH');
+                    }
                 }
+
+                // Exchange code for tokens
+                const tokens = await this.exchangeCodeForTokens(code);
+                
+                // Handle the tokens
+                this.handleTokens(tokens);
+                
+                // Clean up URL in browser
+                if (Environment.isBrowser && history.replaceState) {
+                    const cleanUrl = window.location.origin + window.location.pathname;
+                    history.replaceState({}, document.title, cleanUrl);
+                }
+
+                // Notify parent window if in popup
+                if (Environment.isBrowser && window.opener) {
+                    window.opener.postMessage({
+                        type: 'zenux_oauth_callback',
+                        success: true,
+                        tokens: tokens
+                    }, '*');
+                }
+
+                return tokens;
+            } catch (error) {
+                this.handleError(error, 'callback');
+                
+                // Notify parent window of error
+                if (Environment.isBrowser && window.opener) {
+                    window.opener.postMessage({
+                        type: 'zenux_oauth_callback',
+                        success: false,
+                        error: error.message,
+                        code: error.code
+                    }, '*');
+                }
+                
+                throw error;
             }
-
-            const codeVerifier = this.getStorage('code_verifier');
-            if (this.config.usePKCE && !codeVerifier) {
-                throw new ZenuxOAuthError('No code verifier found', 'NO_CODE_VERIFIER');
-            }
-
-            const tokens = await this.exchangeCodeForTokens(code, codeVerifier);
-
-            this.session.tokens = tokens;
-            this.setStorage('tokens', JSON.stringify(tokens));
-
-            this.clearStorage('code_verifier');
-            this.clearStorage('state');
-            this.clearStorage('nonce');
-            this.clearStorage('csrf_token');
-
-            if (Environment.isBrowser && typeof history !== 'undefined' && history.replaceState) {
-                history.replaceState({}, document.title, urlObj.pathname);
-            }
-
-            if (this.config.onAfterLogin) {
-                await this.config.onAfterLogin(tokens);
-            }
-
-            this.emit('login', tokens);
-            return tokens;
-        } catch (error) {
-            this.debugLog('Callback error', error);
-            this.emit('error', error);
-            throw error;
-        }
-    }
-
-    async exchangeCodeForTokens(code, codeVerifier) {
-        if (!this.config.fetchFunction) {
-            throw new ZenuxOAuthError('Fetch function not available', 'FETCH_UNAVAILABLE');
         }
 
-        const tokenData = new URLSearchParams({
-            grant_type: 'authorization_code',
-            code: code,
-            redirect_uri: this.config.redirectUri,
-            client_id: this.config.clientId,
-            ...this.config.extraTokenParams
-        });
+        async exchangeCodeForTokens(code) {
+            const tokenData = {
+                grant_type: 'authorization_code',
+                code: code,
+                redirect_uri: this.config.redirectUri,
+                client_id: this.config.clientId,
+                ...this.config.extraTokenParams
+            };
 
-        if (this.config.usePKCE && codeVerifier) {
-            tokenData.append('code_verifier', codeVerifier);
-        }
-
-        const response = await this.config.fetchFunction(`${this.config.authServer}${this.config.tokenEndpoint}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json'
-            },
-            body: tokenData
-        });
-
-        if (!response.ok) {
-            let errorDetails;
-            try {
-                errorDetails = await response.json();
-            } catch {
-                errorDetails = await response.text();
+            if (this.config.usePKCE) {
+                const codeVerifier = this.storage.get('code_verifier');
+                if (!codeVerifier) {
+                    throw new ZenuxOAuthError('No code verifier found', 'NO_CODE_VERIFIER');
+                }
+                tokenData.code_verifier = codeVerifier;
             }
 
-            throw new ZenuxOAuthError(
-                `Token exchange failed: ${response.status}`,
-                'TOKEN_EXCHANGE_FAILED',
-                { status: response.status, response: errorDetails }
+            const response = await this.http.postForm(
+                `${this.config.authServer}${this.config.tokenEndpoint}`,
+                tokenData
             );
-        }
 
-        const tokens = await response.json();
-
-        if (tokens.expires_in) {
-            tokens.expires_at = Date.now() + (tokens.expires_in * 1000);
-        }
-
-        return tokens;
-    }
-
-    getTokens() {
-        if (this.session.tokens) {
-            return this.session.tokens;
-        }
-
-        const storedTokens = this.getStorage('tokens');
-        if (storedTokens) {
-            try {
-                this.session.tokens = JSON.parse(storedTokens);
-                return this.session.tokens;
-            } catch (e) {
-                this.clearStorage('tokens');
+            if (response.expires_in) {
+                response.expires_at = Date.now() + (response.expires_in * 1000);
             }
+
+            return response;
         }
 
-        return null;
-    }
+        handleTokens(tokens) {
+            this.session.tokens = tokens;
+            this.storage.set('tokens', JSON.stringify(tokens));
+            
+            // Clean up temporary storage
+            this.storage.remove('code_verifier');
+            this.storage.remove('state');
+            this.storage.remove('nonce');
+            this.storage.remove('csrf_token');
+            
+            // Call after login hook
+            if (this.config.onAfterLogin) {
+                this.config.onAfterLogin(tokens);
+            }
+            
+            // Emit login event
+            this.emit('login', tokens);
+            
+            this.debugLog('Tokens received and stored', {
+                hasAccessToken: !!tokens.access_token,
+                hasRefreshToken: !!tokens.refresh_token,
+                expiresAt: tokens.expires_at
+            });
+        }
 
-    loadTokens() {
-        this.getTokens();
-    }
+        // ==================== TOKEN MANAGEMENT ====================
+        getTokens() {
+            if (this.session.tokens) return this.session.tokens;
+            
+            const tokensStr = this.storage.get('tokens');
+            if (tokensStr) {
+                try {
+                    this.session.tokens = JSON.parse(tokensStr);
+                    return this.session.tokens;
+                } catch (e) {
+                    this.storage.remove('tokens');
+                }
+            }
+            
+            return null;
+        }
 
-    isAuthenticated() {
-        const tokens = this.getTokens();
-        return !!(tokens && tokens.access_token && !this.isTokenExpired());
-    }
+        getAccessToken() {
+            const tokens = this.getTokens();
+            return tokens?.access_token || null;
+        }
 
-    isTokenExpired() {
-        const tokens = this.getTokens();
-        if (!tokens?.access_token) return true;
+        isAuthenticated() {
+            const tokens = this.getTokens();
+            return !!(tokens?.access_token && !this.isTokenExpired());
+        }
 
-        if (tokens.expires_at) {
+        isTokenExpired() {
+            const tokens = this.getTokens();
+            if (!tokens?.expires_at) return false;
+            
             const isExpired = Date.now() >= tokens.expires_at;
             if (isExpired) {
                 this.emit('tokenExpired', tokens);
@@ -654,230 +860,142 @@ class ZenuxOAuth {
             return isExpired;
         }
 
-        return false;
-    }
+        async refreshTokens() {
+            try {
+                const tokens = this.getTokens();
+                if (!tokens?.refresh_token) {
+                    throw new ZenuxOAuthError('No refresh token available', 'NO_REFRESH_TOKEN');
+                }
 
-    async refreshTokens() {
-        const refreshPromise = this._pendingRequests.get('refresh');
-        if (refreshPromise) {
-            return refreshPromise;
-        }
+                this.debugLog('Refreshing tokens');
 
-        const promise = this._refreshTokensInternal();
-        this._pendingRequests.set('refresh', promise);
-
-        try {
-            const result = await promise;
-            this._pendingRequests.delete('refresh');
-            return result;
-        } catch (error) {
-            this._pendingRequests.delete('refresh');
-            throw error;
-        }
-    }
-
-    async _refreshTokensInternal() {
-        try {
-            const tokens = this.getTokens();
-            if (!tokens?.refresh_token) {
-                throw new ZenuxOAuthError('No refresh token available', 'NO_REFRESH_TOKEN');
-            }
-
-            this.debugLog('Refreshing tokens');
-
-            const response = await this.config.fetchFunction(
-                `${this.config.authServer}${this.config.tokenEndpoint}`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Accept': 'application/json'
-                    },
-                    body: new URLSearchParams({
+                const response = await this.http.postForm(
+                    `${this.config.authServer}${this.config.tokenEndpoint}`,
+                    {
                         grant_type: 'refresh_token',
                         refresh_token: tokens.refresh_token,
                         client_id: this.config.clientId,
                         ...this.config.extraTokenParams
-                    })
-                }
-            );
-
-            if (!response.ok) {
-                throw new ZenuxOAuthError(
-                    'Token refresh failed',
-                    'TOKEN_REFRESH_FAILED',
-                    { status: response.status }
+                    }
                 );
-            }
 
-            const newTokens = await response.json();
-
-            if (newTokens.expires_in) {
-                newTokens.expires_at = Date.now() + (newTokens.expires_in * 1000);
-            }
-
-            if (!newTokens.refresh_token && tokens.refresh_token) {
-                newTokens.refresh_token = tokens.refresh_token;
-            }
-
-            this.session.tokens = newTokens;
-            this.setStorage('tokens', JSON.stringify(this.session.tokens));
-
-            this.emit('tokenRefresh', newTokens);
-            return newTokens;
-        } catch (error) {
-            this.debugLog('Token refresh error', error);
-            this.emit('error', error);
-
-            if (error.code === 'TOKEN_REFRESH_FAILED') {
-                this.logout();
-            }
-
-            throw error;
-        }
-    }
-
-    async checkAndRefreshToken() {
-        if (!this.isAuthenticated()) return;
-
-        const tokens = this.getTokens();
-        if (tokens.expires_at) {
-            const timeUntilExpiry = (tokens.expires_at - Date.now()) / 1000;
-            if (timeUntilExpiry < this.config.refreshThreshold) {
-                try {
-                    await this.refreshTokens();
-                } catch (error) {
-                    this.debugLog('Auto refresh failed', error);
+                if (response.expires_in) {
+                    response.expires_at = Date.now() + (response.expires_in * 1000);
                 }
+
+                // Preserve refresh token if not returned
+                if (!response.refresh_token && tokens.refresh_token) {
+                    response.refresh_token = tokens.refresh_token;
+                }
+
+                this.session.tokens = response;
+                this.storage.set('tokens', JSON.stringify(response));
+                
+                this.emit('tokenRefresh', response);
+                return response;
+            } catch (error) {
+                this.handleError(error, 'refresh');
+                
+                // If refresh fails, clear tokens
+                if (error.code === 'TOKEN_REFRESH_FAILED') {
+                    this.clearSession();
+                }
+                
+                throw error;
             }
         }
-    }
 
-    setupAutoRefresh() {
-        if (!Environment.isBrowser) return;
+        async revokeToken(token = null, tokenType = 'access_token') {
+            try {
+                const tokens = this.getTokens();
+                const tokenToRevoke = token || tokens?.[tokenType];
+                
+                if (!tokenToRevoke) {
+                    throw new ZenuxOAuthError(`No ${tokenType} to revoke`, 'NO_TOKEN');
+                }
 
-        if (this._refreshInterval) {
-            clearInterval(this._refreshInterval);
-        }
-
-        this._refreshInterval = setInterval(() => {
-            this.checkAndRefreshToken();
-        }, 60000);
-    }
-
-    async revokeToken(token = null, tokenType = 'access_token') {
-        try {
-            const tokens = this.getTokens();
-            const tokenToRevoke = token || tokens?.[tokenType];
-
-            if (!tokenToRevoke) {
-                throw new ZenuxOAuthError(`No ${tokenType} available to revoke`, 'NO_TOKEN');
-            }
-
-            const response = await this.config.fetchFunction(
-                `${this.config.authServer}${this.config.revokeEndpoint}`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    body: new URLSearchParams({
+                await this.http.postForm(
+                    `${this.config.authServer}${this.config.revokeEndpoint}`,
+                    {
                         token: tokenToRevoke,
                         token_type_hint: tokenType,
                         client_id: this.config.clientId
-                    })
-                }
-            );
+                    }
+                );
 
-            if (!response.ok) {
-                throw new ZenuxOAuthError('Token revocation failed', 'REVOKE_FAILED');
+                return true;
+            } catch (error) {
+                this.handleError(error, 'revoke');
+                throw error;
             }
-
-            return true;
-        } catch (error) {
-            this.debugLog('Token revocation error', error);
-            throw error;
         }
-    }
 
-    async getUserInfo() {
-        try {
-            const tokens = this.getTokens();
-            if (!tokens?.access_token) {
-                throw new ZenuxOAuthError('No access token available', 'NO_ACCESS_TOKEN');
-            }
+        // ==================== USER INFO ====================
+        async getUserInfo() {
+            try {
+                const accessToken = this.getAccessToken();
+                if (!accessToken) {
+                    throw new ZenuxOAuthError('No access token', 'NO_ACCESS_TOKEN');
+                }
 
-            const endpoints = [
-                `${this.config.authServer}${this.config.userinfoEndpoint}`,
-                `${this.config.authServer}/userinfo`,
-                `${this.config.authServer}/api/userinfo`
-            ];
-
-            let lastError;
-            for (const endpoint of endpoints) {
-                try {
-                    const response = await this.config.fetchFunction(endpoint, {
+                const response = await this.http.request(
+                    `${this.config.authServer}${this.config.userinfoEndpoint}`,
+                    {
                         headers: {
-                            'Authorization': `Bearer ${tokens.access_token}`,
-                            'Accept': 'application/json'
+                            'Authorization': `Bearer ${accessToken}`
                         }
-                    });
-
-                    if (response.ok) {
-                        return await response.json();
                     }
+                );
 
-                    if (response.status !== 404) {
-                        lastError = new ZenuxOAuthError(
-                            `UserInfo request failed: ${response.status}`,
-                            'USERINFO_FAILED'
-                        );
-                        break;
-                    }
-                } catch (error) {
-                    lastError = error;
-                    continue;
-                }
+                return response.json();
+            } catch (error) {
+                this.handleError(error, 'userinfo');
+                throw error;
             }
-
-            if (tokens.id_token) {
-                const userInfo = this.decodeJWT(tokens.id_token);
-                if (userInfo) return userInfo;
-            }
-
-            throw lastError || new ZenuxOAuthError('Could not retrieve user info', 'USERINFO_FAILED');
-        } catch (error) {
-            this.debugLog('Get user info error', error);
-            this.emit('error', error);
-            throw error;
         }
-    }
 
-    async logout(options = {}) {
-        try {
-            if (this.config.onBeforeLogout) {
-                await this.config.onBeforeLogout();
-            }
-
-            const hadTokens = this.isAuthenticated();
-
-            if (options.revokeTokens && this.session.tokens) {
-                try {
-                    await this.revokeToken(this.session.tokens.access_token, 'access_token');
-                    if (this.session.tokens.refresh_token) {
-                        await this.revokeToken(this.session.tokens.refresh_token, 'refresh_token');
-                    }
-                } catch (error) {
-                    this.debugLog('Token revocation during logout failed', error);
+        // ==================== LOGOUT ====================
+        async logout(options = {}) {
+            try {
+                if (this.config.onBeforeLogout) {
+                    await this.config.onBeforeLogout();
                 }
+
+                const hadTokens = this.isAuthenticated();
+
+                // Revoke tokens if requested
+                if (options.revoke && this.session.tokens) {
+                    try {
+                        await this.revokeToken(this.session.tokens.access_token, 'access_token');
+                        if (this.session.tokens.refresh_token) {
+                            await this.revokeToken(this.session.tokens.refresh_token, 'refresh_token');
+                        }
+                    } catch (error) {
+                        this.debugLog('Token revocation failed', error);
+                    }
+                }
+
+                // Clear session
+                this.clearSession();
+
+                // Call after logout hook
+                if (this.config.onAfterLogout) {
+                    await this.config.onAfterLogout();
+                }
+
+                // Emit event if we had tokens
+                if (hadTokens) {
+                    this.emit('logout');
+                }
+
+                return true;
+            } catch (error) {
+                this.handleError(error, 'logout');
+                throw error;
             }
+        }
 
-            this.clearStorage('tokens');
-            this.clearStorage('code_verifier');
-            this.clearStorage('state');
-            this.clearStorage('nonce');
-            this.clearStorage('csrf_token');
-
+        clearSession() {
             this.session = {
                 codeVerifier: null,
                 state: null,
@@ -885,730 +1003,445 @@ class ZenuxOAuth {
                 csrfToken: null,
                 nonce: null
             };
-
-            if (this.config.onAfterLogout) {
-                await this.config.onAfterLogout();
-            }
-
-            if (hadTokens) {
-                this.emit('logout');
-            }
-
-            return true;
-        } catch (error) {
-            this.debugLog('Logout error', error);
-            this.emit('error', error);
-            throw error;
+            
+            this.storage.clear();
         }
-    }
 
-    getAuthenticatedFetch() {
-        return async (url, options = {}) => {
-            if (this.isTokenExpired() && this.getTokens()?.refresh_token) {
-                try {
-                    await this.refreshTokens();
-                } catch (error) {
-                    throw new ZenuxOAuthError(
-                        'Unable to refresh tokens for request',
-                        'AUTH_REQUEST_FAILED',
-                        { originalError: error }
+        // ==================== UTILITIES ====================
+        getAuthenticatedFetch() {
+            return async (url, options = {}) => {
+                // Refresh token if needed
+                if (this.isTokenExpired() && this.getTokens()?.refresh_token) {
+                    try {
+                        await this.refreshTokens();
+                    } catch (error) {
+                        throw new ZenuxOAuthError(
+                            'Failed to refresh token for request',
+                            'TOKEN_REFRESH_FAILED',
+                            { originalError: error }
+                        );
+                    }
+                }
+
+                const accessToken = this.getAccessToken();
+                if (!accessToken) {
+                    throw new ZenuxOAuthError('No access token', 'NO_ACCESS_TOKEN');
+                }
+
+                return this.http.request(url, {
+                    ...options,
+                    headers: {
+                        ...options.headers,
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+            };
+        }
+
+        decodeJWT(token) {
+            try {
+                const base64Url = token.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                
+                let jsonPayload;
+                if (Environment.isNode && typeof Buffer !== 'undefined') {
+                    jsonPayload = Buffer.from(base64, 'base64').toString('utf8');
+                } else {
+                    jsonPayload = decodeURIComponent(
+                        atob(base64).split('').map(c =>
+                            '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+                        ).join('')
                     );
                 }
+                
+                return JSON.parse(jsonPayload);
+            } catch (error) {
+                this.debugLog('JWT decode failed', error);
+                return null;
             }
+        }
 
+        // ==================== AUTO REFRESH ====================
+        setupAutoRefresh() {
+            if (!this.config.autoRefresh || !Environment.isBrowser) return;
+            
+            if (this.refreshInterval) {
+                clearInterval(this.refreshInterval);
+            }
+            
+            this.refreshInterval = setInterval(() => {
+                this.checkAndRefreshToken();
+            }, 60000); // Check every minute
+        }
+
+        async checkAndRefreshToken() {
+            if (!this.isAuthenticated()) return;
+            
             const tokens = this.getTokens();
-            if (!tokens?.access_token) {
-                throw new ZenuxOAuthError('No access token available', 'NO_ACCESS_TOKEN');
+            if (tokens?.expires_at) {
+                const timeUntilExpiry = (tokens.expires_at - Date.now()) / 1000;
+                if (timeUntilExpiry < this.config.refreshThreshold) {
+                    try {
+                        await this.refreshTokens();
+                    } catch (error) {
+                        this.debugLog('Auto-refresh failed', error);
+                    }
+                }
+            }
+        }
+
+        // ==================== EVENT SYSTEM ====================
+        on(event, handler) {
+            if (!this.events[event]) {
+                this.events[event] = [];
+            }
+            this.events[event].push(handler);
+            return this;
+        }
+
+        off(event, handler) {
+            if (!this.events[event]) return this;
+            
+            if (handler) {
+                this.events[event] = this.events[event].filter(h => h !== handler);
+            } else {
+                this.events[event] = [];
+            }
+            return this;
+        }
+
+        emit(event, data) {
+            this.debugLog(`Event: ${event}`, data);
+            
+            if (this.events[event]) {
+                this.events[event].forEach(handler => {
+                    try {
+                        handler(data);
+                    } catch (error) {
+                        console.error(`Error in ${event} handler:`, error);
+                    }
+                });
+            }
+        }
+
+        handleError(error, context) {
+            const oauthError = error instanceof ZenuxOAuthError 
+                ? error 
+                : new ZenuxOAuthError(
+                    error.message || 'Unknown error',
+                    error.code || 'UNKNOWN_ERROR',
+                    { context, originalError: error }
+                );
+            
+            this.debugLog(`Error in ${context}:`, oauthError);
+            this.emit('error', oauthError);
+        }
+
+        debugLog(message, data = null) {
+            if (!this.config.debug) return;
+            
+            const timestamp = new Date().toISOString();
+            const env = this.config.environment;
+            console.log(`[ZenuxOAuth ${timestamp} ${env}] ${message}`, data || '');
+        }
+
+        // ==================== PUBLIC API ====================
+        getSessionState() {
+            const tokens = this.getTokens();
+            return {
+                isAuthenticated: this.isAuthenticated(),
+                tokens: tokens,
+                hasRefreshToken: !!tokens?.refresh_token,
+                isExpired: this.isTokenExpired(),
+                expiresAt: tokens?.expires_at,
+                timeUntilExpiry: tokens?.expires_at 
+                    ? Math.max(0, (tokens.expires_at - Date.now()) / 1000)
+                    : null
+            };
+        }
+
+        updateConfig(newConfig) {
+            Object.assign(this.config, newConfig);
+            this.debugLog('Configuration updated', newConfig);
+        }
+
+        destroy() {
+            if (this.refreshInterval) {
+                clearInterval(this.refreshInterval);
+                this.refreshInterval = null;
+            }
+            
+            this.events = {
+                login: [],
+                logout: [],
+                tokenRefresh: [],
+                error: [],
+                tokenExpired: []
+            };
+            
+            this.debugLog('Instance destroyed');
+        }
+    }
+
+    // ==================== CALLBACK HANDLER (Browser Only) ====================
+    class ZenuxOAuthCallbackHandler {
+        constructor(config = {}) {
+            if (!Environment.isBrowser) {
+                console.warn('Callback handler requires browser environment');
+                return;
             }
 
-            const headers = {
-                'Authorization': `Bearer ${tokens.access_token}`,
-                'Accept': 'application/json',
-                ...options.headers
+            this.config = {
+                debug: config.debug || false,
+                autoClose: config.autoClose !== false,
+                autoCloseDelay: config.autoCloseDelay || 2000,
+                successMessage: config.successMessage || 'Authentication successful!',
+                errorMessage: config.errorMessage || 'Authentication failed.',
+                ...config
             };
 
-            return this.config.fetchFunction(url, { ...options, headers });
-        };
-    }
+            this.init();
+        }
 
-    decodeJWT(token) {
-        try {
-            const base64Url = token.split('.')[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        init() {
+            this.debugLog('Initializing callback handler');
             
-            let jsonPayload;
-            if (Environment.isNode && typeof Buffer !== 'undefined') {
-                const buffer = Buffer.from(base64, 'base64');
-                jsonPayload = buffer.toString('utf8');
+            // Check if we're on a callback page
+            const urlParams = new URLSearchParams(window.location.search);
+            const hasCode = urlParams.has('code');
+            const hasError = urlParams.has('error');
+            
+            if (hasCode || hasError) {
+                this.setupUI();
+                this.processCallback();
             } else {
-                jsonPayload = decodeURIComponent(
-                    atob(base64).split('').map(c =>
-                        '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
-                    ).join('')
-                );
+                this.debugLog('Not a callback page');
             }
+        }
+
+        setupUI() {
+            if (document.getElementById('zenux-callback-container')) return;
             
-            return JSON.parse(jsonPayload);
-        } catch (error) {
-            this.debugLog('JWT decode error', error);
-            return null;
-        }
-    }
-
-    getStorage(key) {
-        const fullKey = this.config.storagePrefix + key;
-
-        if (this.config.storage === 'memory') {
-            return this.memoryStorage.get(fullKey) || null;
-        }
-
-        if (!Environment.isBrowser) return null;
-
-        try {
-            const storage = this.config.storage === 'localStorage' ? localStorage : sessionStorage;
-            return storage.getItem(fullKey);
-        } catch (e) {
-            this.debugLog('Storage get failed', e);
-            return null;
-        }
-    }
-
-    setStorage(key, value) {
-        const fullKey = this.config.storagePrefix + key;
-
-        if (this.config.storage === 'memory') {
-            this.memoryStorage.set(fullKey, value);
-            return;
-        }
-
-        if (!Environment.isBrowser) return;
-
-        try {
-            const storage = this.config.storage === 'localStorage' ? localStorage : sessionStorage;
-            storage.setItem(fullKey, value);
-        } catch (e) {
-            this.debugLog('Storage set failed', e);
-        }
-    }
-
-    clearStorage(key) {
-        const fullKey = this.config.storagePrefix + key;
-
-        if (this.config.storage === 'memory') {
-            this.memoryStorage.delete(fullKey);
-            return;
-        }
-
-        if (!Environment.isBrowser) return;
-
-        try {
-            const storage = this.config.storage === 'localStorage' ? localStorage : sessionStorage;
-            storage.removeItem(fullKey);
-        } catch (e) {
-            this.debugLog('Storage clear failed', e);
-        }
-    }
-
-    debugLog(message, data = null) {
-        if (!this.config.debug) return;
-
-        const timestamp = new Date().toISOString();
-        const env = Environment.getEnvironment();
-        console.log(`[ZenuxOAuth ${timestamp} ${env}]`, message, data || '');
-    }
-
-    async getAuthorizationUrl(options = {}) {
-        if (this.config.usePKCE) {
-            this.session.codeVerifier = this.generateRandomString(128);
-            this.session.codeChallenge = await this.sha256(this.session.codeVerifier);
-        }
-
-        this.session.state = this.generateRandomString(32);
-        this.session.nonce = this.generateRandomString(32);
-
-        const params = new URLSearchParams({
-            client_id: this.config.clientId,
-            redirect_uri: options.redirectUri || this.config.redirectUri,
-            scope: options.scopes || this.config.scopes,
-            response_type: 'code',
-            state: this.session.state,
-            nonce: this.session.nonce,
-            ...this.config.extraAuthParams,
-            ...(options.extraParams || {})
-        });
-
-        if (this.config.usePKCE) {
-            params.append('code_challenge', this.session.codeChallenge);
-            params.append('code_challenge_method', 'S256');
-        }
-
-        return {
-            url: `${this.config.authServer}${this.config.authorizeEndpoint}?${params.toString()}`,
-            state: this.session.state,
-            codeVerifier: this.session.codeVerifier,
-            nonce: this.session.nonce
-        };
-    }
-
-    async introspectToken(token = null) {
-        try {
-            const tokens = this.getTokens();
-            const tokenToIntrospect = token || tokens?.access_token;
-
-            if (!tokenToIntrospect) {
-                throw new ZenuxOAuthError('No token to introspect', 'NO_TOKEN');
-            }
-
-            const response = await this.config.fetchFunction(
-                `${this.config.authServer}/oauth/introspect`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    body: new URLSearchParams({
-                        token: tokenToIntrospect,
-                        client_id: this.config.clientId
-                    })
-                }
-            );
-
-            if (!response.ok) {
-                throw new ZenuxOAuthError('Token introspection failed', 'INTROSPECT_FAILED');
-            }
-
-            return await response.json();
-        } catch (error) {
-            this.debugLog('Token introspection error', error);
-            throw error;
-        }
-    }
-
-    getSessionState() {
-        const tokens = this.getTokens();
-        return {
-            isAuthenticated: this.isAuthenticated(),
-            tokens: tokens,
-            hasRefreshToken: !!tokens?.refresh_token,
-            isExpired: this.isTokenExpired(),
-            expiresAt: tokens?.expires_at,
-            timeUntilExpiry: tokens?.expires_at
-                ? Math.max(0, tokens.expires_at - Date.now())
-                : null,
-            environment: Environment.getEnvironment()
-        };
-    }
-
-    exportSession() {
-        return {
-            tokens: this.session.tokens,
-            config: {
-                clientId: this.config.clientId,
-                authServer: this.config.authServer,
-                scopes: this.config.scopes
-            },
-            timestamp: Date.now(),
-            environment: Environment.getEnvironment()
-        };
-    }
-
-    importSession(sessionData) {
-        if (!sessionData || !sessionData.tokens) {
-            throw new ZenuxOAuthError('Invalid session data', 'INVALID_SESSION');
-        }
-
-        this.session.tokens = sessionData.tokens;
-        this.setStorage('tokens', JSON.stringify(this.session.tokens));
-        this.emit('login', this.session.tokens);
-    }
-
-    destroy() {
-        if (this._refreshInterval) {
-            clearInterval(this._refreshInterval);
-            this._refreshInterval = null;
-        }
-
-        this._pendingRequests.clear();
-
-        this.eventHandlers = {
-            login: [],
-            logout: [],
-            tokenRefresh: [],
-            error: [],
-            tokenExpired: [],
-            stateChange: []
-        };
-
-        this.debugLog('ZenuxOAuth instance destroyed');
-    }
-}
-
-// ==================== CALLBACK HANDLER (Browser Only) ====================
-
-class ZenuxOAuthCallbackHandler {
-    constructor(config = {}) {
-        if (!Environment.isBrowser) {
-            console.warn('ZenuxOAuthCallbackHandler is only available in browser environments');
-            return;
-        }
-
-        this.config = {
-            debug: config.debug || false,
-            autoClose: config.autoClose !== false,
-            autoCloseDelay: config.autoCloseDelay || 2000,
-            homeUrl: config.homeUrl || '/',
-            storagePrefix: config.storagePrefix || 'zenux_oauth_',
-            successMessage: config.successMessage || 'Authentication successful!',
-            errorMessage: config.errorMessage || 'Authentication failed.',
-            ...config
-        };
-
-        this.elements = {};
-        this.init();
-    }
-
-    init() {
-        this.debugLog('Initializing callback handler');
-        
-        if (Environment.isBrowser && typeof document !== 'undefined') {
-            this.setupDOM();
-            this.handleCallback();
-        } else {
-            this.debugLog('Running in non-browser environment, callback handler disabled');
-        }
-    }
-
-    setupDOM() {
-        if (!document.getElementById('zenux-oauth-callback-container')) {
             const container = document.createElement('div');
-            container.id = 'zenux-oauth-callback-container';
-            container.innerHTML = this.getDefaultHTML();
+            container.id = 'zenux-callback-container';
+            container.innerHTML = this.getHTML();
             document.body.appendChild(container);
         }
 
-        this.elements = {
-            loading: document.getElementById('zenux-oauth-loading'),
-            success: document.getElementById('zenux-oauth-success'),
-            error: document.getElementById('zenux-oauth-error'),
-            successMessage: document.getElementById('zenux-oauth-success-message'),
-            errorMessage: document.getElementById('zenux-oauth-error-message'),
-            debug: document.getElementById('zenux-oauth-debug')
-        };
-    }
-
-    getDefaultHTML() {
-        return `
-            <style>
-                .zenux-oauth-callback {
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    min-height: 100vh;
-                    padding: 20px;
-                    margin: 0;
-                }
-                .zenux-oauth-container {
-                    background: rgba(255, 255, 255, 0.1);
-                    padding: 40px;
-                    border-radius: 20px;
-                    backdrop-filter: blur(15px);
-                    text-align: center;
-                    max-width: 500px;
-                    width: 100%;
-                    box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
-                    border: 1px solid rgba(255, 255, 255, 0.18);
-                }
-                .zenux-oauth-spinner {
-                    border: 4px solid rgba(255, 255, 255, 0.3);
-                    border-radius: 50%;
-                    border-top: 4px solid white;
-                    width: 50px;
-                    height: 50px;
-                    animation: zenux-spin 1s linear infinite;
-                    margin: 0 auto 20px;
-                }
-                @keyframes zenux-spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-                .zenux-oauth-success { color: #4ade80; }
-                .zenux-oauth-error { color: #f87171; }
-                .zenux-oauth-hidden { display: none; }
-                .zenux-oauth-button {
-                    background: white;
-                    color: #667eea;
-                    border: none;
-                    padding: 12px 24px;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    font-size: 16px;
-                    font-weight: 600;
-                    margin: 10px 5px;
-                    transition: all 0.3s ease;
-                    text-decoration: none;
-                    display: inline-block;
-                }
-                .zenux-oauth-button:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-                }
-                .zenux-oauth-debug {
-                    background: rgba(0, 0, 0, 0.3);
-                    padding: 15px;
-                    border-radius: 10px;
-                    margin-top: 20px;
-                    text-align: left;
-                    font-family: 'Courier New', monospace;
-                    font-size: 11px;
-                    max-height: 300px;
-                    overflow-y: auto;
-                    white-space: pre-wrap;
-                    word-break: break-all;
-                }
-            </style>
-            <div class="zenux-oauth-callback">
-                <div class="zenux-oauth-container">
-                    <div id="zenux-oauth-loading">
-                        <div class="zenux-oauth-spinner"></div>
-                        <h1>Processing Authentication</h1>
-                        <p>Please wait while we complete your login...</p>
-                    </div>
-                    
-                    <div id="zenux-oauth-success" class="zenux-oauth-hidden">
-                        <div style="font-size: 3rem; margin-bottom: 15px;">✓</div>
-                        <h1 class="zenux-oauth-success">Authentication Successful</h1>
-                        <p id="zenux-oauth-success-message"></p>
-                    </div>
-                    
-                    <div id="zenux-oauth-error" class="zenux-oauth-hidden">
-                        <div style="font-size: 3rem; margin-bottom: 15px;">✗</div>
-                        <h1 class="zenux-oauth-error">Authentication Failed</h1>
-                        <p id="zenux-oauth-error-message"></p>
-                        <div>
-                            <button class="zenux-oauth-button" onclick="window.zenuxOAuthCallback?.retry()">Try Again</button>
-                            <button class="zenux-oauth-button" onclick="window.zenuxOAuthCallback?.closeWindow()">Close</button>
+        getHTML() {
+            return `
+                <style>
+                    .zenux-callback {
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        z-index: 9999;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    }
+                    .zenux-callback-content {
+                        background: rgba(255, 255, 255, 0.1);
+                        padding: 40px;
+                        border-radius: 20px;
+                        backdrop-filter: blur(10px);
+                        text-align: center;
+                        max-width: 500px;
+                        width: 90%;
+                        box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+                        border: 1px solid rgba(255, 255, 255, 0.18);
+                    }
+                    .zenux-spinner {
+                        border: 4px solid rgba(255, 255, 255, 0.3);
+                        border-radius: 50%;
+                        border-top: 4px solid white;
+                        width: 50px;
+                        height: 50px;
+                        animation: spin 1s linear infinite;
+                        margin: 0 auto 20px;
+                    }
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                    .zenux-success { color: #4ade80; }
+                    .zenux-error { color: #f87171; }
+                    .zenux-hidden { display: none; }
+                    .zenux-button {
+                        background: white;
+                        color: #667eea;
+                        border: none;
+                        padding: 12px 24px;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        font-size: 16px;
+                        font-weight: 600;
+                        margin: 10px 5px;
+                        transition: transform 0.2s;
+                    }
+                    .zenux-button:hover {
+                        transform: translateY(-2px);
+                    }
+                </style>
+                <div class="zenux-callback">
+                    <div class="zenux-callback-content">
+                        <div id="zenux-loading">
+                            <div class="zenux-spinner"></div>
+                            <h1 style="color: white;">Processing Authentication</h1>
+                            <p style="color: rgba(255, 255, 255, 0.8);">Please wait...</p>
+                        </div>
+                        
+                        <div id="zenux-success" class="zenux-hidden">
+                            <div style="font-size: 3rem; margin-bottom: 15px; color: #4ade80;">✓</div>
+                            <h1 class="zenux-success">Success!</h1>
+                            <p id="zenux-success-message" style="color: rgba(255, 255, 255, 0.9);"></p>
+                        </div>
+                        
+                        <div id="zenux-error" class="zenux-hidden">
+                            <div style="font-size: 3rem; margin-bottom: 15px; color: #f87171;">✗</div>
+                            <h1 class="zenux-error">Error</h1>
+                            <p id="zenux-error-message" style="color: rgba(255, 255, 255, 0.9);"></p>
+                            <div>
+                                <button class="zenux-button" onclick="window.location.href='/'">Go Home</button>
+                                <button class="zenux-button" onclick="window.close()">Close</button>
+                            </div>
                         </div>
                     </div>
-                    
-                    <div id="zenux-oauth-debug" class="zenux-oauth-debug zenux-oauth-hidden"></div>
                 </div>
-            </div>
-        `;
-    }
-
-    async handleCallback() {
-        try {
-            this.debugLog('Starting callback processing');
-
-            const urlParams = new URLSearchParams(window.location.search);
-            const code = urlParams.get('code');
-            const state = urlParams.get('state');
-            const error = urlParams.get('error');
-            const errorDescription = urlParams.get('error_description');
-
-            this.debugLog('URL parameters', { 
-                hasCode: !!code, 
-                hasState: !!state, 
-                error, 
-                errorDescription 
-            });
-
-            if (error) {
-                throw new ZenuxOAuthError(
-                    errorDescription || error,
-                    'OAUTH_ERROR',
-                    { error, errorDescription }
-                );
-            }
-
-            if (!code) {
-                throw new ZenuxOAuthError('No authorization code received', 'NO_AUTH_CODE');
-            }
-
-            if (window.ZenuxOAuthInstance) {
-                this.debugLog('Using main ZenuxOAuth instance');
-                const tokens = await window.ZenuxOAuthInstance.handleCallback();
-                this.showSuccess('Authentication complete!');
-                this.notifyParent('success', { tokens });
-                return tokens;
-            }
-
-            const tokens = await this.exchangeCodeManually(code, state);
-            this.showSuccess('Authentication complete!');
-            this.notifyParent('success', { tokens });
-            return tokens;
-
-        } catch (error) {
-            this.debugLog('Callback processing failed', error);
-            this.showError(error.message);
-            this.notifyParent('error', { 
-                error: error.message, 
-                code: error.code || 'CALLBACK_ERROR' 
-            });
-            throw error;
-        }
-    }
-
-    async exchangeCodeManually(code, state) {
-        this.debugLog('Manual token exchange started');
-
-        const config = this.getOAuthConfig();
-        const codeVerifier = this.getStoredValue('code_verifier');
-        const storedState = this.getStoredValue('state');
-
-        this.debugLog('Retrieved configuration', {
-            hasCodeVerifier: !!codeVerifier,
-            hasStoredState: !!storedState,
-            clientId: config.clientId,
-            authServer: config.authServer
-        });
-
-        if (storedState && state !== storedState) {
-            throw new ZenuxOAuthError('State parameter mismatch', 'STATE_MISMATCH');
+            `;
         }
 
-        if (!codeVerifier) {
-            throw new ZenuxOAuthError('No code verifier found', 'NO_CODE_VERIFIER');
-        }
-
-        const tokenData = new URLSearchParams({
-            grant_type: 'authorization_code',
-            code: code,
-            redirect_uri: config.redirectUri,
-            client_id: config.clientId,
-            code_verifier: codeVerifier
-        });
-
-        const response = await fetch(`${config.authServer}${config.tokenEndpoint}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Accept': 'application/json'
-            },
-            body: tokenData
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new ZenuxOAuthError(
-                `Token exchange failed: ${response.status}`,
-                'TOKEN_EXCHANGE_FAILED',
-                { status: response.status, response: errorText }
-            );
-        }
-
-        const tokens = await response.json();
-        
-        this.setStoredValue('tokens', JSON.stringify(tokens));
-        this.clearStoredValue('code_verifier');
-        this.clearStoredValue('state');
-        this.clearStoredValue('nonce');
-
-        this.debugLog('Manual token exchange successful');
-        return tokens;
-    }
-
-    getOAuthConfig() {
-        const urlParams = new URLSearchParams(window.location.search);
-        
-        return {
-            clientId: urlParams.get('client_id') || this.getStoredValue('client_id'),
-            authServer: urlParams.get('auth_server') || this.getStoredValue('auth_server') || 'https://api.auth.zenuxs.in',
-            redirectUri: window.location.origin + window.location.pathname,
-            tokenEndpoint: '/oauth/token',
-            authorizeEndpoint: '/oauth/authorize'
-        };
-    }
-
-    getStoredValue(key) {
-        const locations = [
-            () => sessionStorage.getItem(this.config.storagePrefix + key),
-            () => localStorage.getItem(this.config.storagePrefix + key),
-            () => sessionStorage.getItem(key),
-            () => localStorage.getItem(key)
-        ];
-
-        for (const getter of locations) {
+        async processCallback() {
             try {
-                const value = getter();
-                if (value) {
-                    this.debugLog(`Found ${key} in storage`);
-                    return value;
+                this.showLoading();
+                
+                // Try to use main instance if available
+                if (window.ZenuxOAuthInstance) {
+                    const tokens = await window.ZenuxOAuthInstance.handleCallback();
+                    this.showSuccess(this.config.successMessage);
+                    
+                    if (this.config.autoClose && window.opener) {
+                        setTimeout(() => window.close(), this.config.autoCloseDelay);
+                    }
+                    
+                    return tokens;
                 }
-            } catch (e) {
-                continue;
+                
+                // Manual callback handling for standalone callback pages
+                const urlParams = new URLSearchParams(window.location.search);
+                const code = urlParams.get('code');
+                const error = urlParams.get('error');
+                
+                if (error) {
+                    throw new Error(urlParams.get('error_description') || error);
+                }
+                
+                if (!code) {
+                    throw new Error('No authorization code received');
+                }
+                
+                // Notify parent window
+                if (window.opener) {
+                    window.opener.postMessage({
+                        type: 'zenux_oauth_callback',
+                        success: true,
+                        code: code
+                    }, '*');
+                    
+                    this.showSuccess('Authentication complete! Closing window...');
+                    setTimeout(() => window.close(), 1000);
+                } else {
+                    this.showSuccess('Authentication complete! You can close this window.');
+                }
+                
+            } catch (error) {
+                this.showError(error.message || this.config.errorMessage);
+                
+                if (window.opener) {
+                    window.opener.postMessage({
+                        type: 'zenux_oauth_callback',
+                        success: false,
+                        error: error.message
+                    }, '*');
+                }
             }
         }
-        return null;
-    }
 
-    setStoredValue(key, value) {
-        try {
-            sessionStorage.setItem(this.config.storagePrefix + key, value);
-        } catch (e) {
-            this.debugLog('Failed to store value', e);
-        }
-    }
-
-    clearStoredValue(key) {
-        try {
-            sessionStorage.removeItem(this.config.storagePrefix + key);
-            localStorage.removeItem(this.config.storagePrefix + key);
-            sessionStorage.removeItem(key);
-            localStorage.removeItem(key);
-        } catch (e) {
-            this.debugLog('Storage cleanup error', e);
-        }
-    }
-
-    notifyParent(type, data) {
-        if (!window.opener || window.opener.closed) {
-            this.debugLog('No parent window to notify');
-            return false;
+        showLoading() {
+            this.showSection('loading');
         }
 
-        this.debugLog(`Notifying parent: ${type}`, data);
-        
-        window.opener.postMessage({
-            type: `zenux_oauth_${type}`,
-            ...data,
-            timestamp: Date.now()
-        }, '*');
-
-        return true;
-    }
-
-    showSuccess(message = null) {
-        this.showSection('success');
-        if (this.elements.successMessage) {
-            this.elements.successMessage.textContent = message || this.config.successMessage;
+        showSuccess(message) {
+            this.showSection('success');
+            const element = document.getElementById('zenux-success-message');
+            if (element) element.textContent = message;
         }
 
-        if (this.config.autoClose) {
-            setTimeout(() => {
-                if (window.opener && !window.opener.closed) {
-                    window.close();
+        showError(message) {
+            this.showSection('error');
+            const element = document.getElementById('zenux-error-message');
+            if (element) element.textContent = message;
+        }
+
+        showSection(section) {
+            ['loading', 'success', 'error'].forEach(id => {
+                const element = document.getElementById(`zenux-${id}`);
+                if (element) {
+                    element.classList[section === id ? 'remove' : 'add']('zenux-hidden');
                 }
-            }, this.config.autoCloseDelay);
+            });
+        }
+
+        debugLog(message, data = null) {
+            if (!this.config.debug) return;
+            console.log('[ZenuxOAuth Callback]', message, data || '');
         }
     }
 
-    showError(message = null) {
-        this.showSection('error');
-        if (this.elements.errorMessage) {
-            this.elements.errorMessage.textContent = message || this.config.errorMessage;
+    // ==================== STATIC METHODS ====================
+    ZenuxOAuth.create = function(config) {
+        return new ZenuxOAuth(config);
+    };
+
+    ZenuxOAuth.createCallbackHandler = function(config) {
+        if (!Environment.isBrowser) return null;
+        return new ZenuxOAuthCallbackHandler(config);
+    };
+
+    ZenuxOAuth.getInstance = function(config) {
+        if (!ZenuxOAuth.instance) {
+            ZenuxOAuth.instance = new ZenuxOAuth(config);
         }
-    }
+        return ZenuxOAuth.instance;
+    };
 
-    showSection(sectionName) {
-        if (this.elements.loading) this.elements.loading.classList.add('zenux-oauth-hidden');
-        if (this.elements.success) this.elements.success.classList.add('zenux-oauth-hidden');
-        if (this.elements.error) this.elements.error.classList.add('zenux-oauth-hidden');
-
-        const section = this.elements[sectionName];
-        if (section) section.classList.remove('zenux-oauth-hidden');
-
-        if (this.config.debug && this.elements.debug) {
-            this.elements.debug.classList.remove('zenux-oauth-hidden');
+    ZenuxOAuth.destroyInstance = function() {
+        if (ZenuxOAuth.instance) {
+            ZenuxOAuth.instance.destroy();
+            ZenuxOAuth.instance = null;
         }
-    }
+    };
 
-    retry() {
-        this.clearStoredValue('code_verifier');
-        this.clearStoredValue('state');
-        window.location.href = this.config.homeUrl;
-    }
+    ZenuxOAuth.Error = ZenuxOAuthError;
+    ZenuxOAuth.VERSION = '2.3.0';
+    ZenuxOAuth.Environment = Environment;
 
-    closeWindow() {
-        if (window.opener && !window.opener.closed) {
-            window.close();
-        } else {
-            window.location.href = this.config.homeUrl;
-        }
-    }
-
-    debugLog(message, data = null) {
-        if (!this.config.debug) return;
+    // ==================== AUTO INITIALIZATION ====================
+    if (Environment.isBrowser) {
+        // Auto-initialize callback handler on callback pages
+        const url = new URL(window.location.href);
+        const isCallbackPage = url.pathname.includes('callback') || 
+                              url.search.includes('code=') ||
+                              url.search.includes('error=');
         
-        const timestamp = new Date().toLocaleTimeString();
-        let logMessage = `[${timestamp}] ${message}`;
-        
-        if (data) {
-            logMessage += '\n' + JSON.stringify(data, null, 2);
+        if (isCallbackPage && !window.ZenuxOAuthCallbackHandler) {
+            window.ZenuxOAuthCallbackHandler = new ZenuxOAuthCallbackHandler();
         }
-        
-        if (this.elements.debug) {
-            this.elements.debug.textContent += logMessage + '\n\n';
-        }
-        
-        console.log('[ZenuxOAuth Callback]', message, data);
     }
-}
 
-// ==================== STATIC METHODS ====================
-
-ZenuxOAuth.create = function(config) {
-    return new ZenuxOAuth(config);
-};
-
-ZenuxOAuth.createCallbackHandler = function(config) {
-    if (!Environment.isBrowser) {
-        console.warn('Callback handler is only available in browser environments');
-        return null;
-    }
-    return new ZenuxOAuthCallbackHandler(config);
-};
-
-ZenuxOAuth.instance = null;
-ZenuxOAuth.getInstance = function(config) {
-    if (!ZenuxOAuth.instance) {
-        ZenuxOAuth.instance = new ZenuxOAuth(config);
-    }
-    return ZenuxOAuth.instance;
-};
-
-ZenuxOAuth.destroyInstance = function() {
-    if (ZenuxOAuth.instance) {
-        ZenuxOAuth.instance.destroy();
-        ZenuxOAuth.instance = null;
-    }
-};
-
-ZenuxOAuth.Error = ZenuxOAuthError; 
-ZenuxOAuth.VERSION = '2.3.0';
-ZenuxOAuth.Environment = Environment;
-
-// ==================== AUTO-INITIALIZATION ====================
-
-if (Environment.isBrowser) {
-    const isCallbackPage = window.location.pathname.includes('callback') || 
-                          window.location.search.includes('code=') ||
-                          window.location.search.includes('error=');
-    
-    if (isCallbackPage) {
-        window.zenuxOAuthCallback = new ZenuxOAuthCallbackHandler();
-    }
-}
-
-// ==================== UMD EXPORT ====================
-
-(function (global, factory) {
-    if (typeof define === 'function' && define.amd) {
-        define([], factory);
-    } else if (typeof module !== 'undefined' && module.exports) {
-        const result = factory();
-        module.exports = result;
-        module.exports.ZenuxOAuthCallbackHandler = ZenuxOAuthCallbackHandler;
-        module.exports.ZenuxOAuthError = ZenuxOAuthError;
-    } else {
-        const result = factory();
-        global.ZenuxOAuth = result;
-        global.ZenuxOAuthCallbackHandler = ZenuxOAuthCallbackHandler;
-        global.ZenuxOAuthError = ZenuxOAuthError;
-    }
-}(typeof window !== 'undefined' ? window : this, function () {
     return ZenuxOAuth;
-}));    
+}));

@@ -1,95 +1,66 @@
 {
   "name": "zenuxs-oauth",
-  "version": "3.0.0",
-  "description": "Cross-platform OAuth 2.0 PKCE SDK for browser, React, and Node.js",
-  "type": "module",
-  "main": "./dist/browser/zenux-oauth.umd.js",
-  "module": "./dist/browser/zenux-oauth.esm.js",
-  "browser": "./dist/browser/zenux-oauth.umd.js",
-  "types": "./dist/index.d.ts",
+  "version": "2.3.2",
+  "type": "commonjs",
+  "description": "Lightweight OAuth 2.0 client for Zenuxs authentication system",
+  "main": "./dist/zenux-oauth.cjs.js",
+  "module": "./dist/zenux-oauth.esm.js",
+  "browser": "./dist/zenux-oauth.js",
+  "types": "./dist/zenux-oauth.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "browser": {
-        "import": "./dist/browser/zenux-oauth.esm.js",
-        "require": "./dist/browser/zenux-oauth.umd.js"
-      },
-      "node": {
-        "import": "./dist/server/index.mjs",
-        "require": "./dist/server/index.cjs"
-      },
-      "default": "./dist/browser/zenux-oauth.umd.js"
-    },
-    "./server": {
-      "types": "./dist/index.d.ts",
-      "node": {
-        "import": "./dist/server/index.mjs",
-        "require": "./dist/server/index.cjs"
-      },
-      "default": "./dist/server/index.cjs"
-    },
-    "./core": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/core/index.mjs",
-      "require": "./dist/core/index.cjs",
-      "default": "./dist/core/index.cjs"
-    },
-    "./browser": {
-      "types": "./dist/index.d.ts",
-      "browser": {
-        "import": "./dist/browser/zenux-oauth.esm.js",
-        "require": "./dist/browser/zenux-oauth.umd.js"
-      },
-      "default": "./dist/browser/zenux-oauth.umd.js"
+      "import": "./dist/zenux-oauth.esm.js",
+      "require": "./dist/zenux-oauth.cjs.js",
+      "browser": "./dist/zenux-oauth.js",
+      "default": "./dist/zenux-oauth.js"
     },
     "./callback": {
-      "browser": "./dist/browser/callback.html",
-      "default": "./dist/browser/callback.html"
+      "browser": "./dist/callback.html",
+      "default": "./dist/callback.html"
     }
   },
   "files": [
-    "dist"
+    "dist/**/*",
+    "README.md"
   ],
   "scripts": {
-    "build": "npm run build:setup && npm run build:rollup",
-    "build:setup": "node build.mjs",
-    "build:rollup": "rollup -c rollup.config.mjs",
-    "dev": "rollup -c rollup.config.mjs --watch",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
-    "prepublishOnly": "npm run build"
+    "build": "node build.js",
+    "build:dev": "NODE_ENV=development node build.js",
+    "prepublishOnly": "npm run build",
+    "test": "echo \"No tests specified\" && exit 0",
+    "lint": "echo \"No linter specified\"",
+    "version": "npm run build",
+    "prepack": "npm run build"
   },
   "keywords": [
     "oauth",
     "oauth2",
-    "pkce",
     "authentication",
-    "authorization",
-    "react",
-    "nextjs",
-    "node",
-    "browser"
+    "zenuxs",
+    "pkce",
+    "openid",
+    "sso",
+    "auth",
+    "login"
   ],
-  "author": "Your Name",
+  "author": {
+    "name": "Zenuxs Team",
+    "email": "mail@zenuxs.in",
+    "url": "https://zenuxs.in"
+  },
   "license": "MIT",
-  "devDependencies": {
-    "rollup": "^4.0.0",
-    "@rollup/plugin-node-resolve": "^15.0.0",
-    "@rollup/plugin-commonjs": "^25.0.0",
-    "@rollup/plugin-terser": "^0.4.0"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/developer-rs5/zenuxs-oauth.git"
   },
-  "peerDependencies": {
-    "node-fetch": "^3.0.0 || ^2.0.0"
+  "bugs": {
+    "url": "https://github.com/developer-rs5/zenuxs-oauth/issues"
   },
-  "peerDependenciesMeta": {
-    "node-fetch": {
-      "optional": true
-    },
-    "undici": {
-      "optional": true
-    }
-  },
+  "homepage": "https://github.com/developer-rs5/zenuxs-oauth#readme",
   "engines": {
     "node": ">=14.0.0"
   },
-  "sideEffects": false
+  "devDependencies": {
+    "uglify-js": "^3.17.4"
+  }
 }
