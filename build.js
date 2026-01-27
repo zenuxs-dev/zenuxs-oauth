@@ -2,17 +2,14 @@ const fs = require('fs');
 const path = require('path');
 const uglifyJS = require('uglify-js');
 
-// Create dist directory if it doesn't exist
 const distDir = path.join(__dirname, 'dist');
 if (!fs.existsSync(distDir)) {
     fs.mkdirSync(distDir, { recursive: true });
 }
 
-// Read source file
 const sourcePath = path.join(__dirname, 'src', 'zenux-oauth.js');
 let sourceCode = fs.readFileSync(sourcePath, 'utf8');
 
-// Create browser-compatible version by removing Node.js specific crypto code
 const browserCode = sourceCode.replace(
     /async sha256\(plain\) \{[\s\S]*?throw new ZenuxOAuthError[^}]*\}/,
     `async sha256(plain) {
@@ -34,13 +31,11 @@ const browserCode = sourceCode.replace(
     }`
 );
 
-// Create regular version (UMD) - Browser compatible
 fs.writeFileSync(
     path.join(distDir, 'zenux-oauth.js'),
     browserCode
 );
 
-// Create minified version (UMD) - Browser compatible
 const minified = uglifyJS.minify(browserCode);
 if (minified.error) {
     console.error('Minification error:', minified.error);
@@ -52,11 +47,8 @@ fs.writeFileSync(
     minified.code
 );
 
-// Create ES module version (without UMD wrapper) - Browser compatible
 let esmCode = browserCode
-    // Remove UMD wrapper
     .replace(/\/\/ UMD pattern for universal module definition[\s\S]*?\(typeof window !== 'undefined' \? window : this, function \(\) \{[\s\S]*?return ZenuxOAuth;[\s\S]*?\}\)\);/, '')
-    // Add ES module export
     .trim() + '\n\nexport default ZenuxOAuth;';
 
 fs.writeFileSync(

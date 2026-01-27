@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zenux OAuth Demo</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 500px; margin: 0 auto; }
+        button { padding: 10px 20px; font-size: 16px; margin: 10px; }
+        .hidden { display: none; }
+        #result { margin-top: 20px; padding: 10px; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Zenux OAuth Demo</h1>
+        
+        <!-- Redirect Flow -->
+        <div>
+            <h2>Standard Redirect Flow</h2>
+            <p>Will redirect to OAuth server and back.</p>
+            <button id="loginRedirect">Login (Redirect)</button>
+        </div>
+        
+        <hr>
+        
+        <!-- Popup Flow (Manual Implementation) -->
+        <div>
+            <h2>Popup Flow</h2>
+            <p>Opens in a new window.</p>
+            <button id="loginPopup">Login (Popup)</button>
+        </div>
+        
+        <div id="result"></div>
+    </div>
+
+    <script src="https://unpkg.com/zenuxs-oauth"></script>
+    <script>
+        // Configuration
+        const config = {
+            clientId: 'f13975eff3604b2e',
+            redirectUri: window.location.origin + '/callback.html',
+            scopes: 'openid profile email',
+            debug: true,
+            storage: 'localStorage',
+                fetchFunction: window.fetch.bind(window),
+        };
+
+        // Redirect Flow
+        document.getElementById('loginRedirect').addEventListener('click', () => {
+            clearStoredData(); // Clear any old data
+            
+            const oauth = new ZenuxOAuth(config);
+            oauth.login().catch(error => {
+                showResult(`Login error: ${error.message}`, 'error');
+            });
+        });
+
+        // Popup Flow (Manual implementation)
+        document.getElementById('loginPopup').addEventListener('click', () => {
+            clearStoredData();
+            
+            const oauth = new ZenuxOAuth({
+                ...config,
+                storage: 'sessionStorage' // Use sessionStorage for popup
+            });
+            
+            // Get auth URL without redirecting
+            oauth.login({ noRedirect: true })
+                .then(authData => {
+                    // Open popup
+                    const width = 600, height = 600;
+                    const left = (window.screen.width - width) / 2;
+                    const top = (window.screen.height - height) / 2;
+                    
+                    const popup = window.open(
+                        authData.url,
+                        'oauthPopup',
+                        `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+                    );
+                    
+                    if (!popup) {
+                        showResult('Popup blocked. Please allow popups for this site.', 'error');
+                        return;
+                    }
+                    
+                    // Poll for popup completion
+                    const checkPopup = setInterval(() => {
+                        if (popup.closed) {
+                            clearInterval(checkPopup);
+                            
+                            // Check if we have tokens
+                            const tokens = getTokensFromStorage();
+                            if (tokens) {
+                                showResult('Login successful via popup!', 'success');
+                                console.log('Tokens:', tokens);
+                            } else {
+                                showResult('Popup closed without completing login', 'error');
+                            }
+                        }
+                    }, 500);
+                    
+                    // Listen for message from popup (alternative method)
+                    window.addEventListener('message', function handleMessage(event) {
+                        if (event.data.type === 'oauth-success') {
+                            console.log('Received tokens from popup:', event.data.tokens);
+                            storeTokens(event.data.tokens);
+                            popup.close();
+                            showResult('Login successful!', 'success');
+                            window.removeEventListener('message', handleMessage);
+                        } else if (event.data.type === 'oauth-error') {
+                            showResult(`Login failed: ${event.data.error}`, 'error');
+                            popup.close();
+                            window.removeEventListener('message', handleMessage);
+                        }
+                    });
+                })
+                .catch(error => {
+                    showResult(`Error: ${error.message}`, 'error');
+                });
+        });
+
+        // Helper functions
+        function clearStoredData() {
+            // Clear localStorage items with our prefix
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key.startsWith('zenux_oauth_')) {
+                    localStorage.removeItem(key);
+                }
+            }
+            // Clear sessionStorage
+            sessionStorage.clear();
+        }
+
+        function getTokensFromStorage() {
+            try {
+                const tokens = localStorage.getItem('zenux_oauth_tokens');
+                return tokens ? JSON.parse(tokens) : null;
+            } catch {
+                return null;
+            }
+        }
+
+        function storeTokens(tokens) {
+            localStorage.setItem('zenux_oauth_tokens', JSON.stringify(tokens));
+        }
+
+        function showResult(message, type = 'info') {
+            const resultDiv = document.getElementById('result');
+            resultDiv.className = type;
+            resultDiv.textContent = message;
+            resultDiv.classList.remove('hidden');
+        }
+
+        // Check if we're already logged in
+        window.addEventListener('load', () => {
+            const tokens = getTokensFromStorage();
+            if (tokens && tokens.access_token) {
+                showResult('Already logged in!', 'success');
+            }
+        });
+    </script>
+</body>
+</html>

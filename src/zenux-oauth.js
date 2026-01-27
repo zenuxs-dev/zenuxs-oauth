@@ -221,7 +221,7 @@ class ZenuxOAuth {
         
         this.config = {
             clientId: config.clientId,
-            authServer: config.authServer || 'https://api.auth.zenuxs.in',
+            authServer: 'https://api.auth.zenuxs.in',
             redirectUri: config.redirectUri || this.getDefaultRedirectUri(),
             scopes: config.scopes || 'openid profile email',
             authorizeEndpoint: config.authorizeEndpoint || '/oauth/authorize',

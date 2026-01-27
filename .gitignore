@@ -1,13 +1,5 @@
-node_modules/
-dist/
-*.log
-.DS_Store
-.env
-.npm
-.cache
-coverage/
-.nyc_output/
+node_modules
+dist
 build.js
 .npmignore
 .vscode
-

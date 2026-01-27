@@ -15,30 +15,23 @@ const isNode = typeof process !== 'undefined' && process.versions && process.ver
 
 let OAuthClient = CoreOAuthClient;
 
-// Dynamic imports for tree-shaking
 if (isBrowser) {
-  // Browser environment
   import('./browser/client.js').then(module => {
     OAuthClient = module.default || module.OAuthClient;
   }).catch(() => {
-    // Fallback to core if browser module fails
     console.warn('Failed to load browser module, using core OAuth client');
   });
 } else if (isNode) {
-  // Node.js environment
   import('./server/client.js').then(module => {
     OAuthClient = module.default || module.OAuthClient;
   }).catch(() => {
-    // Fallback to core if server module fails
     console.warn('Failed to load server module, using core OAuth client');
   });
 }
 
-// Default export
 export { OAuthClient };
 export default OAuthClient;
 
-// Helper function that returns appropriate client
 export async function createOAuthClient(config) {
   if (isBrowser) {
     const { BrowserOAuthClient } = await import('./browser/client.js');

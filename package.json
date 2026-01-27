@@ -44,19 +44,19 @@
     "login"
   ],
   "author": {
-    "name": "Zenuxs Team",
-    "email": "mail@zenuxs.in",
-    "url": "https://zenuxs.in"
+    "name": "Developer RS",
+    "email": "rs@zenuxs.in",
+    "url": "https://rs.zenuxs.in"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/developer-rs5/zenuxs-oauth.git"
+    "url": "https://github.com/zenuxs-dev/zenuxs-oauh"
   },
   "bugs": {
-    "url": "https://github.com/developer-rs5/zenuxs-oauth/issues"
+    "url": "https://github.com/zenuxs-dev/zenuxs-oauh/issues"
   },
-  "homepage": "https://github.com/developer-rs5/zenuxs-oauth#readme",
+  "homepage": "https://zenuxs.in/developers",
   "engines": {
     "node": ">=14.0.0"
   },
