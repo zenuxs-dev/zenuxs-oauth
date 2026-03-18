@@ -4,7 +4,7 @@ export { handleRedirectFlow, createPopupFlow, createSilentFlow } from './flows.j
 export { getCurrentUrl, redirectTo, createPopup, parseUrlParams, cleanupUrl } from './utils.js';
 export { OAuthError, InvalidConfigError, TokenError, NetworkError } from '../core/errors.js';
 export { generateRandomString, generatePKCEChallenge } from '../core/pkce.js';
-export { buildAuthorizationUrl, parseCallbackUrl } from '../core/urls.js';
+export { buildAuthorizationUrl, buildTokenUrl, buildUserInfoUrl, buildDiscoveryUrl, buildJwksUrl, buildClientInfoUrl, parseCallbackUrl } from '../core/urls.js';
 export { parseTokenResponse, isTokenExpired, decodeJWT, validateTokenStructure } from '../core/tokens.js';
 
 // Convenience exports for automatic flows

@@ -101,6 +101,10 @@ const typeDefinitions = `declare interface ZenuxOAuthConfig {
     clientId: string;
     redirectUri?: string;
     authServer?: string;
+    authorizeServer?: string;
+    discoveryEndpoint?: string;
+    jwksEndpoint?: string;
+    clientInfoEndpoint?: string;
     frontend?: string;
     scopes?: string;
     storage?: 'localStorage' | 'sessionStorage' | 'memory';
@@ -145,6 +149,9 @@ declare class ZenuxOAuth {
     login(options?: any): Promise<any>;
     handleCallback(callbackUrl?: string): Promise<TokenResponse>;
     getUserInfo(): Promise<UserInfo>;
+    getDiscoveryDocument(): Promise<any>;
+    getJwks(): Promise<any>;
+    getClientInfo(clientId: string): Promise<any>;
     getTokens(): TokenResponse | null;
     isAuthenticated(): boolean;
     logout(options?: any): Promise<boolean>;
@@ -152,8 +159,12 @@ declare class ZenuxOAuth {
     decodeJWT(token: string): any;
     getAuthorizationUrl(options?: any): Promise<any>;
     getAuthenticatedFetch(): Function;
+    on(event: string, handler: Function): Function;
+    off(event: string, handler: Function): void;
+    emit(event: string, payload?: any): void;
     revokeToken(token?: string, tokenType?: string): Promise<boolean>;
     destroy(): void;
+    static supportedScopes: string[];
 }
 
 export default ZenuxOAuth;

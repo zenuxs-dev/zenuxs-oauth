@@ -35,11 +35,15 @@ export class OAuthClient {
       authServer: config.authServer.endsWith('/') 
         ? config.authServer.slice(0, -1) 
         : config.authServer,
+      authorizeServer: config.authorizeServer || config.authServer,
       redirectUri: config.redirectUri,
       scopes: config.scopes || 'openid profile email',
       authorizeEndpoint: config.authorizeEndpoint || '/oauth/authorize',
       tokenEndpoint: config.tokenEndpoint || '/oauth/token',
       userinfoEndpoint: config.userinfoEndpoint || '/oauth/userinfo',
+      discoveryEndpoint: config.discoveryEndpoint || '/oauth/.well-known/openid-configuration',
+      jwksEndpoint: config.jwksEndpoint || '/oauth/.well-known/jwks.json',
+      clientInfoEndpoint: config.clientInfoEndpoint || '/oauth/client',
       revokeEndpoint: config.revokeEndpoint || '/oauth/revoke',
       usePKCE: config.usePKCE !== false,
       extraAuthParams: config.extraAuthParams || {},
@@ -82,7 +86,7 @@ export class OAuthClient {
 
     // Build authorization URL
     const url = buildAuthorizationUrl({
-      authServer: this.config.authServer,
+      authServer: this.config.authorizeServer,
       authorizeEndpoint: this.config.authorizeEndpoint,
       clientId: this.config.clientId,
       redirectUri,
@@ -207,6 +211,59 @@ export class OAuthClient {
         'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
         ...extraParams
+      }
+    };
+  }
+
+  async getDiscoveryRequest(options = {}) {
+    const discoveryUrl = buildDiscoveryUrl({
+      authServer: this.config.authServer,
+      discoveryEndpoint: this.config.discoveryEndpoint
+    });
+
+    return {
+      url: discoveryUrl,
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        ...(options.extraHeaders || {})
+      }
+    };
+  }
+
+  async getJwksRequest(options = {}) {
+    const jwksUrl = buildJwksUrl({
+      authServer: this.config.authServer,
+      jwksEndpoint: this.config.jwksEndpoint
+    });
+
+    return {
+      url: jwksUrl,
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        ...(options.extraHeaders || {})
+      }
+    };
+  }
+
+  async getClientInfoRequest(clientId, options = {}) {
+    if (!clientId) {
+      throw new OAuthError('clientId is required for client info', 'MISSING_CLIENT_ID');
+    }
+
+    const clientInfoUrl = buildClientInfoUrl({
+      authServer: this.config.authServer,
+      clientInfoEndpoint: this.config.clientInfoEndpoint,
+      clientId
+    });
+
+    return {
+      url: clientInfoUrl,
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        ...(options.extraHeaders || {})
       }
     };
   }

@@ -62,3 +62,31 @@ export function buildTokenUrl({
   const url = new URL(tokenEndpoint, authServer);
   return url.toString();
 }
+
+export function buildDiscoveryUrl({
+  authServer,
+  discoveryEndpoint = '/oauth/.well-known/openid-configuration'
+}) {
+  const url = new URL(discoveryEndpoint, authServer);
+  return url.toString();
+}
+
+export function buildJwksUrl({
+  authServer,
+  jwksEndpoint = '/oauth/.well-known/jwks.json'
+}) {
+  const url = new URL(jwksEndpoint, authServer);
+  return url.toString();
+}
+
+export function buildClientInfoUrl({
+  authServer,
+  clientInfoEndpoint = '/oauth/client',
+  clientId
+}) {
+  const endpoint = clientInfoEndpoint.endsWith('/')
+    ? clientInfoEndpoint.slice(0, -1)
+    : clientInfoEndpoint;
+  const url = new URL(`${endpoint}/${encodeURIComponent(clientId)}`, authServer);
+  return url.toString();
+}

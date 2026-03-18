@@ -71,6 +71,9 @@ const ZenuxOAuth = require('zenuxs-oauth');
 const oauth = new ZenuxOAuth({
     clientId: "your-client-id",
     authServer: "https://api.auth.zenuxs.in",
+    // If your authorization/consent UI is hosted separately (e.g. https://zenuxs.in)
+    // you can override it here. Otherwise it defaults to the same value as authServer.
+    authorizeServer: "https://accounts.zenuxs.in",
     redirectUri: window.location.origin + "/callback.html",
     scopes: "openid profile email",
     storage: "sessionStorage"
@@ -95,6 +98,24 @@ async function getUserInfo() {
 // Logout
 async function logout() {
     await oauth.logout({ revokeTokens: true });
+}
+
+// Optional: Fetch provider metadata (OIDC discovery)
+async function getProviderMetadata() {
+    const metadata = await oauth.getDiscoveryDocument();
+    console.log('OIDC metadata:', metadata);
+}
+
+// Optional: Fetch JWKS for token validation
+async function getJwkSet() {
+    const jwks = await oauth.getJwks();
+    console.log('JWKS:', jwks);
+}
+
+// Optional: Fetch client info (public client metadata)
+async function getClientInfo() {
+    const clientInfo = await oauth.getClientInfo('your-client-id');
+    console.log('Client info:', clientInfo);
 }
 ```
 
@@ -198,64 +219,68 @@ oauth.on('tokenRefresh', (newTokens) => {
 });
 ```
 
-### 📡 Comprehensive Event System
+## 🧩 Supported Scopes (Zenuxs)
+Zenuxs exposes a standard set of OpenID Connect + social scopes. The SDK will request them exactly as passed via `scopes`.
+
+### 🔑 Full Scope List
+- `openid` (required for ID tokens)
+- `profile` (returns: `name`, `preferred_username`, `given_name`, `family_name`, `picture`, `updated_at`)
+- `email` (returns: `email`, `email_verified`)
+- `discord` / `discord:profile` (returns: `discord.id`, `discord.username`, `discord.discriminator`, `discord.avatar`, `discord.email`)
+- `discord:guilds` (returns: `discord_guilds`)
+- `discord:join_server` (returns: `discord_join_server` boolean)
+- `github` / `github:profile` (returns: `github.id`, `github.username`, `github.name`, `github.avatar`, `github.email`, `github.bio`, `github.public_repos`)
+- `github:repos` (returns: `github_repos`)
+- `github:commit` (returns: `github_commit` boolean)
+
+### 📌 Access the list programmatically
+```js
+console.log(ZenuxOAuth.supportedScopes);
+```
+
+> ✅ Tip: Use `scopes: 'openid profile email'` for most standard OpenID Connect flows.
+
+### 📡 Event Hooks
+Zenuxs OAuth emits a few useful lifecycle events. Use `on()` to subscribe:
+
 ```javascript
-// Authentication events
+// When the login URL is generated (before redirect/popup)
+oauth.on('loginRequest', (authData) => {
+    console.log('Login started (redirect/popup URL):', authData.url);
+});
+
+// When login completes successfully
 oauth.on('login', (tokens) => {
-    console.log("User logged in");
+    console.log('Logged in! Tokens:', tokens);
 });
 
-oauth.on('logout', () => {
-    console.log("User logged out");
-});
-
-// Token management events
+// When tokens are refreshed
 oauth.on('tokenRefresh', (newTokens) => {
-    console.log("Tokens refreshed");
+    console.log('Tokens refreshed', newTokens);
 });
 
+// When token is found expired and refresh is about to happen
 oauth.on('tokenExpired', () => {
-    console.log("Token expired");
+    console.log('Token is expired; refreshing...');
 });
 
-// Error handling
+// When user logs out
+oauth.on('logout', () => {
+    console.log('Logged out');
+});
+
+// Global error handler
 oauth.on('error', (error) => {
-    console.error("OAuth error:", error);
+    console.error('OAuth error:', error);
 });
 
-// State changes
+// State value has changed (used for CSRF protection)
 oauth.on('stateChange', (change) => {
-    console.log("State changed:", change);
+    console.log('State changed:', change);
 });
 ```
 
-### 🛡️ Built-in Callback Handler
-Create a beautiful, functional callback page with zero effort:
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>OAuth Callback</title>
-</head>
-<body>
-    <div id="zenux-oauth-callback-container"></div>
-    <script src="https://unpkg.com/zenuxs-oauth@2.3.1/dist/zenux-oauth.min.js"></script>
-    <script>
-        // Automatically handles OAuth callback and closes popup
-        window.zenuxOAuthCallback = new ZenuxOAuthCallbackHandler({
-            debug: true,
-            autoClose: true,
-            autoCloseDelay: 2000,
-            successMessage: "Authentication successful! Redirecting...",
-            errorMessage: "Authentication failed. Please try again."
-        });
-    </script>
-</body>
-</html>
-```
-
-### 💾 Flexible Storage Options
+###  Flexible Storage Options
 ```javascript
 // Session Storage (default) - survives page reload, cleared on tab close
 storage: "sessionStorage"
@@ -293,10 +318,6 @@ await oauth.revokeToken(tokens.access_token, 'access_token');
 
 // Revoke all tokens on logout
 await oauth.logout({ revokeTokens: true });
-
-// Introspect token validity
-const tokenInfo = await oauth.introspectToken();
-console.log("Token active:", tokenInfo.active);
 ```
 
 ### 👤 User Information
@@ -313,16 +334,6 @@ const oauth = new ZenuxOAuth({
 });
 ```
 
-### 📤 Session Export/Import
-```javascript
-// Export session (for cross-device sync or persistence)
-const sessionData = oauth.exportSession();
-localStorage.setItem('oauth_backup', JSON.stringify(sessionData));
-
-// Import session (restore authentication state)
-const savedSession = JSON.parse(localStorage.getItem('oauth_backup'));
-oauth.importSession(savedSession);
-```
 
 ### 🎯 Authenticated Fetch
 ```javascript

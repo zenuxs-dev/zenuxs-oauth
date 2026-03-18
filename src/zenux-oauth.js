@@ -30,6 +30,22 @@ class ZenuxOAuthError extends Error {
     }
 }
 
+// ==================== SUPPORTED SCOPES (Zenuxs) ====================
+// These match the scopes returned by Zenuxs /userinfo and social providers.
+const SUPPORTED_SCOPES = [
+    'openid',
+    'profile',
+    'email',
+    'discord',
+    'discord:profile',
+    'discord:guilds',
+    'discord:join_server',
+    'github',
+    'github:profile',
+    'github:repos',
+    'github:commit'
+];
+
 // ==================== STORAGE MANAGER ====================
 class StorageManager {
     constructor(prefix = 'zenux_oauth_', type = 'auto') {
@@ -221,13 +237,16 @@ class ZenuxOAuth {
         
         this.config = {
             clientId: config.clientId,
-            authServer: 'https://api.auth.zenuxs.in',
-            redirectUri: config.redirectUri || this.getDefaultRedirectUri(),
-            scopes: config.scopes || 'openid profile email',
-            authorizeEndpoint: config.authorizeEndpoint || '/oauth/authorize',
-            tokenEndpoint: config.tokenEndpoint || '/oauth/token',
-            userinfoEndpoint: config.userinfoEndpoint || '/oauth/userinfo',
-            revokeEndpoint: config.revokeEndpoint || '/oauth/revoke',
+        authServer: config.authServer || 'https://api.auth.zenuxs.in',
+        authorizeServer: config.authorizeServer || config.authServer || 'https://api.auth.zenuxs.in',
+        redirectUri: config.redirectUri || this.getDefaultRedirectUri(),
+        scopes: config.scopes || 'openid profile email',
+        authorizeEndpoint: config.authorizeEndpoint || '/oauth/authorize',
+        tokenEndpoint: config.tokenEndpoint || '/oauth/token',
+        userinfoEndpoint: config.userinfoEndpoint || '/oauth/userinfo',
+        discoveryEndpoint: config.discoveryEndpoint || '/oauth/.well-known/openid-configuration',
+        jwksEndpoint: config.jwksEndpoint || '/oauth/.well-known/jwks.json',
+        clientInfoEndpoint: config.clientInfoEndpoint || '/oauth/client',
             storage: config.storage || 'memory',
             storagePrefix: config.storagePrefix || 'zenux_oauth_',
             usePKCE: config.usePKCE !== false,
@@ -243,9 +262,38 @@ class ZenuxOAuth {
             state: null,
             tokens: null
         };
-        
+
+        // Event listeners (minimal emitter)
+        this._listeners = {};
+
         this.loadSession();
         this.debugLog('Initialized', { environment: isBrowser ? 'browser' : 'node' });
+    }
+
+    on(event, handler) {
+        if (!this._listeners[event]) {
+            this._listeners[event] = [];
+        }
+        this._listeners[event].push(handler);
+        return () => this.off(event, handler);
+    }
+
+    off(event, handler) {
+        if (!this._listeners[event]) return;
+        this._listeners[event] = this._listeners[event].filter(h => h !== handler);
+    }
+
+    emit(event, payload) {
+        const handlers = this._listeners[event];
+        if (handlers && handlers.length) {
+            handlers.forEach(h => {
+                try {
+                    h(payload);
+                } catch (e) {
+                    this.debugLog(`Listener for ${event} failed`, e);
+                }
+            });
+        }
     }
 
     validateConfig(config) {
@@ -309,8 +357,10 @@ class ZenuxOAuth {
             }
 
             // Generate state
+            const prevState = this.session.state;
             this.session.state = CryptoUtils.generateRandomString(32);
             this.storage.set('state', this.session.state);
+            this.emit('stateChange', { previous: prevState, current: this.session.state });
 
             // Build authorization URL
             const params = new URLSearchParams({
@@ -326,22 +376,27 @@ class ZenuxOAuth {
                 params.append('code_challenge_method', 'S256');
             }
 
-            const authUrl = `${this.config.authServer}${this.config.authorizeEndpoint}?${params.toString()}`;
+            const authUrl = `${this.config.authorizeServer}${this.config.authorizeEndpoint}?${params.toString()}`;
             
             this.debugLog('Authorization URL', authUrl);
+
+            const result = {
+                url: authUrl,
+                state: this.session.state,
+                codeVerifier: this.session.codeVerifier
+            };
+
+            this.emit('loginRequest', result);
 
             if (isBrowser && !options.noRedirect) {
                 window.location.href = authUrl;
                 return null;
             }
 
-            return {
-                url: authUrl,
-                state: this.session.state,
-                codeVerifier: this.session.codeVerifier
-            };
+            return result;
         } catch (error) {
             this.debugLog('Login error', error);
+            this.emit('error', error);
             throw error;
         }
     }
@@ -391,6 +446,8 @@ class ZenuxOAuth {
             this.storage.remove('code_verifier');
             this.storage.remove('state');
 
+            this.emit('login', tokens);
+
             this.debugLog('Tokens received', { 
                 access_token: tokens.access_token ? 'yes' : 'no',
                 refresh_token: tokens.refresh_token ? 'yes' : 'no' 
@@ -399,6 +456,7 @@ class ZenuxOAuth {
             return tokens;
         } catch (error) {
             this.debugLog('Callback error', error);
+            this.emit('error', error);
             throw error;
         }
     }
@@ -472,7 +530,9 @@ class ZenuxOAuth {
         try {
             const tokens = this.getTokens();
             if (!tokens?.refresh_token) {
-                throw new ZenuxOAuthError('No refresh token', 'NO_REFRESH_TOKEN');
+                const error = new ZenuxOAuthError('No refresh token', 'NO_REFRESH_TOKEN');
+                this.emit('error', error);
+                throw error;
             }
 
             const response = await this.config.fetchFunction(
@@ -492,7 +552,9 @@ class ZenuxOAuth {
             );
 
             if (!response.ok) {
-                throw new ZenuxOAuthError('Token refresh failed', 'REFRESH_FAILED');
+                const error = new ZenuxOAuthError('Token refresh failed', 'REFRESH_FAILED');
+                this.emit('error', error);
+                throw error;
             }
 
             const newTokens = await response.json();
@@ -509,9 +571,12 @@ class ZenuxOAuth {
             this.session.tokens = newTokens;
             this.storage.set('tokens', JSON.stringify(newTokens));
 
+            this.emit('tokenRefresh', newTokens);
+
             return newTokens;
         } catch (error) {
             this.debugLog('Refresh error', error);
+            this.emit('error', error);
             throw error;
         }
     }
@@ -535,12 +600,94 @@ class ZenuxOAuth {
             );
 
             if (!response.ok) {
-                throw new ZenuxOAuthError('UserInfo request failed', 'USERINFO_FAILED');
+                const error = new ZenuxOAuthError('UserInfo request failed', 'USERINFO_FAILED');
+                this.emit('error', error);
+                throw error;
             }
 
             return response.json();
         } catch (error) {
             this.debugLog('UserInfo error', error);
+            this.emit('error', error);
+            throw error;
+        }
+    }
+
+    async getDiscoveryDocument() {
+        try {
+            const response = await this.config.fetchFunction(
+                `${this.config.authServer}${this.config.discoveryEndpoint}`,
+                {
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                }
+            );
+
+            if (!response.ok) {
+                const error = new ZenuxOAuthError('Discovery request failed', 'DISCOVERY_FAILED');
+                this.emit('error', error);
+                throw error;
+            }
+
+            return response.json();
+        } catch (error) {
+            this.debugLog('Discovery error', error);
+            this.emit('error', error);
+            throw error;
+        }
+    }
+
+    async getJwks() {
+        try {
+            const response = await this.config.fetchFunction(
+                `${this.config.authServer}${this.config.jwksEndpoint}`,
+                {
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                }
+            );
+
+            if (!response.ok) {
+                const error = new ZenuxOAuthError('JWKS request failed', 'JWKS_FAILED');
+                this.emit('error', error);
+                throw error;
+            }
+
+            return response.json();
+        } catch (error) {
+            this.debugLog('JWKS error', error);
+            this.emit('error', error);
+            throw error;
+        }
+    }
+
+    async getClientInfo(clientId) {
+        if (!clientId) {
+            throw new ZenuxOAuthError('clientId is required', 'MISSING_CLIENT_ID');
+        }
+
+        try {
+            const response = await this.config.fetchFunction(
+                `${this.config.authServer}${this.config.clientInfoEndpoint}/${encodeURIComponent(clientId)}`,
+                {
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                }
+            );
+
+            if (!response.ok) {
+                const error = new ZenuxOAuthError('Client info request failed', 'CLIENT_INFO_FAILED');
+                this.emit('error', error);
+                throw error;
+            }
+
+            return response.json();
+        } catch (error) {
+            this.debugLog('Client info error', error);
+            this.emit('error', error);
             throw error;
         }
     }
@@ -566,9 +713,14 @@ class ZenuxOAuth {
             this.session = { codeVerifier: null, state: null, tokens: null };
             this.storage.clear();
 
+            if (hadTokens) {
+                this.emit('logout');
+            }
+
             return hadTokens;
         } catch (error) {
             this.debugLog('Logout error', error);
+            this.emit('error', error);
             throw error;
         }
     }
@@ -606,12 +758,15 @@ class ZenuxOAuth {
         return async (url, options = {}) => {
             // Refresh if expired
             if (this.isTokenExpired() && this.session.tokens?.refresh_token) {
+                this.emit('tokenExpired');
                 await this.refreshTokens();
             }
 
             const accessToken = this.getAccessToken();
             if (!accessToken) {
-                throw new ZenuxOAuthError('No access token', 'NO_ACCESS_TOKEN');
+                const error = new ZenuxOAuthError('No access token', 'NO_ACCESS_TOKEN');
+                this.emit('error', error);
+                throw error;
             }
 
             const headers = {
@@ -656,6 +811,9 @@ class ZenuxOAuth {
         };
     }
 }
+
+// Attach list of supported scopes for easy reference
+ZenuxOAuth.supportedScopes = SUPPORTED_SCOPES;
 
 // ==================== EXPORT ====================
 // Simple export for all environments
