@@ -237,8 +237,6 @@ class ZenuxOAuth {
         
         this.config = {
             clientId: config.clientId,
-        authServer: config.authServer || 'https://api.auth.zenuxs.in',
-        authorizeServer: config.authorizeServer || config.authServer || 'https://api.auth.zenuxs.in',
         redirectUri: config.redirectUri || this.getDefaultRedirectUri(),
         scopes: config.scopes || 'openid profile email',
         authorizeEndpoint: config.authorizeEndpoint || '/oauth/authorize',
@@ -253,7 +251,8 @@ class ZenuxOAuth {
             validateState: config.validateState !== false,
             debug: config.debug || false,
             fetchFunction: config.fetchFunction || this.getFetchFunction(),
-            ...config
+            ...config,
+            authServer: 'https://api.auth.zenuxs.in'
         };
 
         this.storage = new StorageManager(this.config.storagePrefix, this.config.storage);
@@ -376,7 +375,7 @@ class ZenuxOAuth {
                 params.append('code_challenge_method', 'S256');
             }
 
-            const authUrl = `${this.config.authorizeServer}${this.config.authorizeEndpoint}?${params.toString()}`;
+            const authUrl = `${this.config.authServer}${this.config.authorizeEndpoint}?${params.toString()}`;
             
             this.debugLog('Authorization URL', authUrl);
 

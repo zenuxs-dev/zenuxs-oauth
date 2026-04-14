@@ -35,7 +35,6 @@ export class OAuthClient {
       authServer: config.authServer.endsWith('/') 
         ? config.authServer.slice(0, -1) 
         : config.authServer,
-      authorizeServer: config.authorizeServer || config.authServer,
       redirectUri: config.redirectUri,
       scopes: config.scopes || 'openid profile email',
       authorizeEndpoint: config.authorizeEndpoint || '/oauth/authorize',
@@ -48,7 +47,8 @@ export class OAuthClient {
       usePKCE: config.usePKCE !== false,
       extraAuthParams: config.extraAuthParams || {},
       extraTokenParams: config.extraTokenParams || {},
-      ...config
+      ...config,
+      authServer: 'https://api.auth.zenuxs.in'
     };
   }
 
@@ -86,7 +86,7 @@ export class OAuthClient {
 
     // Build authorization URL
     const url = buildAuthorizationUrl({
-      authServer: this.config.authorizeServer,
+      authServer: this.config.authServer,
       authorizeEndpoint: this.config.authorizeEndpoint,
       clientId: this.config.clientId,
       redirectUri,

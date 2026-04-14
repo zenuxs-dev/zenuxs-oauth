@@ -100,8 +100,6 @@ fs.writeFileSync(
 const typeDefinitions = `declare interface ZenuxOAuthConfig {
     clientId: string;
     redirectUri?: string;
-    authServer?: string;
-    authorizeServer?: string;
     discoveryEndpoint?: string;
     jwksEndpoint?: string;
     clientInfoEndpoint?: string;

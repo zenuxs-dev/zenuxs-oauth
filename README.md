@@ -42,7 +42,7 @@ Unlike most OAuth libraries that lock you into a specific environment, Zenuxs OA
 
 ### Browser (CDN)
 ```html
-<script src="https://unpkg.com/zenuxs-oauth@2.3.1/dist/zenux-oauth.min.js"></script>
+<script src="https://unpkg.com/zenuxs-oauth@4.2.0/dist/zenux-oauth.min.js"></script>
 ```
 
 ### NPM / Yarn
@@ -70,10 +70,6 @@ const ZenuxOAuth = require('zenuxs-oauth');
 ```javascript
 const oauth = new ZenuxOAuth({
     clientId: "your-client-id",
-    authServer: "https://api.auth.zenuxs.in",
-    // If your authorization/consent UI is hosted separately (e.g. https://zenuxs.in)
-    // you can override it here. Otherwise it defaults to the same value as authServer.
-    authorizeServer: "https://accounts.zenuxs.in",
     redirectUri: window.location.origin + "/callback.html",
     scopes: "openid profile email",
     storage: "sessionStorage"
@@ -125,7 +121,6 @@ const ZenuxOAuth = require('zenuxs-oauth');
 
 const oauth = new ZenuxOAuth({
     clientId: process.env.CLIENT_ID,
-    authServer: "https://api.auth.zenuxs.in",
     redirectUri: "https://yourapp.com/callback",
     scopes: "openid profile email",
     storage: "memory",
@@ -154,7 +149,6 @@ import { Linking } from 'react-native';
 
 const oauth = new ZenuxOAuth({
     clientId: "your-client-id",
-    authServer: "https://api.auth.zenuxs.in",
     redirectUri: "myapp://callback",
     scopes: "openid profile email",
     storage: "memory"
@@ -208,7 +202,6 @@ console.log("Redirect user to:", authData.url);
 ```javascript
 const oauth = new ZenuxOAuth({
     clientId: "your-client-id",
-    authServer: "https://api.auth.zenuxs.in",
     autoRefresh: true,           // Enable auto-refresh
     refreshThreshold: 300        // Refresh 5 minutes before expiry
 });
@@ -329,7 +322,6 @@ console.log(user.name, user.email, user.picture);
 // Multiple userinfo endpoints supported
 const oauth = new ZenuxOAuth({
     clientId: "your-client-id",
-    authServer: "https://api.auth.zenuxs.in",
     userinfoEndpoint: "/oauth/userinfo"  // or custom endpoint
 });
 ```
@@ -359,7 +351,7 @@ const oauth = new ZenuxOAuth({
     clientId: "your-client-id",
     
     // Server Configuration
-    authServer: "https://api.auth.zenuxs.in",
+    // authServer is fixed to https://api.auth.zenuxs.in
     authorizeEndpoint: "/oauth/authorize",
     tokenEndpoint: "/oauth/token",
     userinfoEndpoint: "/oauth/userinfo",
@@ -470,7 +462,6 @@ function useZenuxAuth(config) {
 function App() {
     const { isAuthenticated, user, loading, login, logout } = useZenuxAuth({
         clientId: "your-client-id",
-        authServer: "https://api.auth.zenuxs.in",
         redirectUri: window.location.origin + "/callback.html",
         scopes: "openid profile email"
     });
@@ -562,7 +553,6 @@ export class AuthService {
     constructor() {
         this.oauth = new ZenuxOAuth({
             clientId: 'your-client-id',
-            authServer: 'https://api.auth.zenuxs.in',
             redirectUri: window.location.origin + '/callback.html',
             scopes: 'openid profile email'
         });
@@ -840,7 +830,6 @@ describe('ZenuxOAuth', () => {
     beforeEach(() => {
         oauth = new ZenuxOAuth({
             clientId: 'test-client-id',
-            authServer: 'https://test-auth.example.com',
             storage: 'memory'
         });
     });

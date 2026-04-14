@@ -1,6 +1,6 @@
 {
   "name": "zenuxs-oauth",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "type": "commonjs",
   "description": "Lightweight OAuth 2.0 client for Zenuxs authentication system",
   "main": "./dist/zenux-oauth.cjs.js",
@@ -56,7 +56,7 @@
   "bugs": {
     "url": "https://github.com/zenuxs-dev/zenuxs-oauh/issues"
   },
-  "homepage": "https://zenuxs.in/developers",
+  "homepage": "https://zenuxs.in",
   "engines": {
     "node": ">=14.0.0"
   },
