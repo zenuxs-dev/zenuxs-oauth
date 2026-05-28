@@ -3,164 +3,443 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zenux OAuth Demo</title>
+    <title>Zenux OAuth Same-Page Demo</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        .container { max-width: 500px; margin: 0 auto; }
-        button { padding: 10px 20px; font-size: 16px; margin: 10px; }
-        .hidden { display: none; }
-        #result { margin-top: 20px; padding: 10px; border-radius: 5px; }
-        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        :root {
+            color-scheme: light;
+            --bg: #f3f7fb;
+            --card: #ffffff;
+            --ink: #102033;
+            --muted: #5f7287;
+            --line: #d5e0ea;
+            --brand: #0f7cff;
+            --brand-strong: #0b5fcc;
+            --success-bg: #e8f8ef;
+            --success-ink: #0f6a3a;
+            --error-bg: #fdecec;
+            --error-ink: #8b1d1d;
+            --panel: #edf4fb;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", system-ui, sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(15, 124, 255, 0.14), transparent 32%),
+                radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.12), transparent 28%),
+                var(--bg);
+            color: var(--ink);
+            min-height: 100vh;
+        }
+
+        .shell {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 40px 20px 64px;
+        }
+
+        .hero {
+            margin-bottom: 24px;
+        }
+
+        .eyebrow {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: rgba(15, 124, 255, 0.1);
+            color: var(--brand-strong);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 14px 0 10px;
+            font-size: clamp(32px, 5vw, 52px);
+            line-height: 1;
+        }
+
+        .hero p {
+            max-width: 700px;
+            margin: 0;
+            color: var(--muted);
+            font-size: 18px;
+            line-height: 1.6;
+        }
+
+        .grid {
+            display: grid;
+            gap: 20px;
+            grid-template-columns: 1.2fr 0.8fr;
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: 0 16px 36px rgba(16, 32, 51, 0.08);
+        }
+
+        .card h2 {
+            margin: 0 0 10px;
+            font-size: 22px;
+        }
+
+        .card p {
+            margin: 0 0 18px;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .button-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        button,
+        .link-button {
+            border: 0;
+            border-radius: 14px;
+            padding: 12px 16px;
+            font: 600 15px/1 "Segoe UI", system-ui, sans-serif;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        button:hover,
+        .link-button:hover {
+            transform: translateY(-1px);
+        }
+
+        .primary {
+            background: var(--brand);
+            color: #fff;
+            box-shadow: 0 12px 24px rgba(15, 124, 255, 0.24);
+        }
+
+        .secondary {
+            background: #e9f2ff;
+            color: var(--brand-strong);
+        }
+
+        .neutral {
+            background: #eef2f6;
+            color: var(--ink);
+        }
+
+        .danger {
+            background: #fff1f1;
+            color: #9c2626;
+        }
+
+        .status {
+            border-radius: 18px;
+            padding: 16px 18px;
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 18px;
+            background: var(--panel);
+            color: var(--ink);
+        }
+
+        .status.success {
+            background: var(--success-bg);
+            color: var(--success-ink);
+        }
+
+        .status.error {
+            background: var(--error-bg);
+            color: var(--error-ink);
+        }
+
+        .panel {
+            border-radius: 18px;
+            background: var(--panel);
+            padding: 16px;
+            margin-top: 16px;
+        }
+
+        .panel h3 {
+            margin: 0 0 10px;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+        }
+
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font: 13px/1.6 Consolas, "Courier New", monospace;
+            color: var(--ink);
+        }
+
+        code {
+            font-family: Consolas, "Courier New", monospace;
+        }
+
+        ul {
+            margin: 0;
+            padding-left: 18px;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+
+        li + li {
+            margin-top: 6px;
+        }
+
+        .manual-link {
+            display: none;
+            margin-top: 12px;
+            padding: 14px 16px;
+            border: 1px dashed var(--line);
+            border-radius: 16px;
+            background: #fbfdff;
+            color: var(--ink);
+        }
+
+        .manual-link a {
+            color: var(--brand-strong);
+            word-break: break-all;
+        }
+
+        @media (max-width: 840px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Zenux OAuth Demo</h1>
-        
-        <!-- Redirect Flow -->
-        <div>
-            <h2>Standard Redirect Flow</h2>
-            <p>Will redirect to OAuth server and back.</p>
-            <button id="loginRedirect">Login (Redirect)</button>
-        </div>
-        
-        <hr>
-        
-        <!-- Popup Flow (Manual Implementation) -->
-        <div>
-            <h2>Popup Flow</h2>
-            <p>Opens in a new window.</p>
-            <button id="loginPopup">Login (Popup)</button>
-        </div>
-        
-        <div id="result"></div>
+    <div class="shell">
+        <section class="hero">
+            <span class="eyebrow">Zenux OAuth Demo</span>
+            <h1>Same-page login flow</h1>
+            <p>
+                This page is both the login screen and the callback screen.
+                The SDK auto-detects the redirect URI, handles the callback on return,
+                and supports <code>ui</code>, <code>popup</code>, <code>redirect</code>, and <code>manual</code> modes.
+            </p>
+        </section>
+
+        <section class="grid">
+            <div class="card">
+                <h2>Try the flows</h2>
+                <p>
+                    The default browser mode is <code>ui</code>. This demo also exposes popup,
+                    redirect, and manual login so you can compare behavior quickly.
+                </p>
+
+                <div id="status" class="status">Checking current session...</div>
+
+                <div class="button-row">
+                    <button id="loginUi" class="primary">Login UI</button>
+                    <button id="loginPopup" class="secondary">Login Popup</button>
+                    <button id="loginRedirect" class="secondary">Login Redirect</button>
+                    <button id="loginManual" class="neutral">Get Manual URL</button>
+                </div>
+
+                <div class="button-row" style="margin-top: 12px;">
+                    <button id="loadProfile" class="neutral">Load User Info</button>
+                    <button id="logout" class="danger">Logout</button>
+                </div>
+
+                <div id="manualLink" class="manual-link">
+                    <strong>Manual authorization URL</strong>
+                    <div style="margin-top: 8px;">
+                        <a id="manualHref" href="#" target="_blank" rel="noreferrer">Open auth URL</a>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h3>Current tokens</h3>
+                    <pre id="tokens">No tokens stored yet.</pre>
+                </div>
+
+                <div class="panel">
+                    <h3>Last user info</h3>
+                    <pre id="profile">No profile loaded yet.</pre>
+                </div>
+            </div>
+
+            <aside class="card">
+                <h2>What this demo uses</h2>
+                <p>
+                    The only required config is <code>clientId</code>. Everything else is optional.
+                </p>
+
+                <div class="panel">
+                    <h3>Config</h3>
+                    <pre>{
+  "clientId": "f13975eff3604b2e",
+  "storage": "localStorage",
+  "theme": "dark",
+  "uiFallbackMode": "popup",
+  "debug": true
+}</pre>
+                </div>
+
+                <div class="panel">
+                    <h3>Notes</h3>
+                    <ul>
+                        <li>Open this example from a local web server, not <code>file://</code>.</li>
+                        <li><code>oauth.init()</code> runs on load and auto-finishes callbacks.</li>
+                        <li>Google, Discord, and GitHub can be moved into popup mode if the embedded sheet cannot continue.</li>
+                        <li>The dedicated callback route example lives in <code>callback.html</code>.</li>
+                    </ul>
+                </div>
+            </aside>
+        </section>
     </div>
 
-    <script src="https://unpkg.com/zenuxs-oauth"></script>
+    <script src="../../dist/zenux-oauth.js"></script>
     <script>
-        // Configuration
-        const config = {
+        const oauth = new ZenuxOAuth({
             clientId: 'f13975eff3604b2e',
-            redirectUri: window.location.origin + '/callback.html',
-            scopes: 'openid profile email',
-            debug: true,
             storage: 'localStorage',
-                fetchFunction: window.fetch.bind(window),
-        };
-
-        // Redirect Flow
-        document.getElementById('loginRedirect').addEventListener('click', () => {
-            clearStoredData(); // Clear any old data
-            
-            const oauth = new ZenuxOAuth(config);
-            oauth.login().catch(error => {
-                showResult(`Login error: ${error.message}`, 'error');
-            });
+            theme: 'dark',
+            uiFallbackMode: 'popup',
+            debug: true
         });
 
-        // Popup Flow (Manual implementation)
-        document.getElementById('loginPopup').addEventListener('click', () => {
-            clearStoredData();
-            
-            const oauth = new ZenuxOAuth({
-                ...config,
-                storage: 'sessionStorage' // Use sessionStorage for popup
-            });
-            
-            // Get auth URL without redirecting
-            oauth.login({ noRedirect: true })
-                .then(authData => {
-                    // Open popup
-                    const width = 600, height = 600;
-                    const left = (window.screen.width - width) / 2;
-                    const top = (window.screen.height - height) / 2;
-                    
-                    const popup = window.open(
-                        authData.url,
-                        'oauthPopup',
-                        `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
-                    );
-                    
-                    if (!popup) {
-                        showResult('Popup blocked. Please allow popups for this site.', 'error');
-                        return;
-                    }
-                    
-                    // Poll for popup completion
-                    const checkPopup = setInterval(() => {
-                        if (popup.closed) {
-                            clearInterval(checkPopup);
-                            
-                            // Check if we have tokens
-                            const tokens = getTokensFromStorage();
-                            if (tokens) {
-                                showResult('Login successful via popup!', 'success');
-                                console.log('Tokens:', tokens);
-                            } else {
-                                showResult('Popup closed without completing login', 'error');
-                            }
-                        }
-                    }, 500);
-                    
-                    // Listen for message from popup (alternative method)
-                    window.addEventListener('message', function handleMessage(event) {
-                        if (event.data.type === 'oauth-success') {
-                            console.log('Received tokens from popup:', event.data.tokens);
-                            storeTokens(event.data.tokens);
-                            popup.close();
-                            showResult('Login successful!', 'success');
-                            window.removeEventListener('message', handleMessage);
-                        } else if (event.data.type === 'oauth-error') {
-                            showResult(`Login failed: ${event.data.error}`, 'error');
-                            popup.close();
-                            window.removeEventListener('message', handleMessage);
-                        }
-                    });
-                })
-                .catch(error => {
-                    showResult(`Error: ${error.message}`, 'error');
-                });
-        });
+        const statusEl = document.getElementById('status');
+        const tokensEl = document.getElementById('tokens');
+        const profileEl = document.getElementById('profile');
+        const manualLinkEl = document.getElementById('manualLink');
+        const manualHrefEl = document.getElementById('manualHref');
 
-        // Helper functions
-        function clearStoredData() {
-            // Clear localStorage items with our prefix
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key.startsWith('zenux_oauth_')) {
-                    localStorage.removeItem(key);
-                }
-            }
-            // Clear sessionStorage
-            sessionStorage.clear();
+        function setStatus(message, type) {
+            statusEl.className = `status${type ? ` ${type}` : ''}`;
+            statusEl.textContent = message;
         }
 
-        function getTokensFromStorage() {
+        function renderTokens(tokens) {
+            if (!tokens) {
+                tokensEl.textContent = 'No tokens stored yet.';
+                return;
+            }
+
+            tokensEl.textContent = JSON.stringify(tokens, null, 2);
+        }
+
+        function renderProfile(profile) {
+            if (!profile) {
+                profileEl.textContent = 'No profile loaded yet.';
+                return;
+            }
+
+            profileEl.textContent = JSON.stringify(profile, null, 2);
+        }
+
+        oauth.on('login', (tokens) => {
+            setStatus('Login completed and tokens were stored.', 'success');
+            renderTokens(tokens);
+        });
+
+        oauth.on('logout', () => {
+            setStatus('Session cleared.', '');
+            renderTokens(null);
+            renderProfile(null);
+        });
+
+        oauth.on('error', (error) => {
+            setStatus(`OAuth error: ${error.message}`, 'error');
+        });
+
+        async function runLogin(mode) {
+            manualLinkEl.style.display = 'none';
+            setStatus(`Starting ${mode} flow...`, '');
+            await oauth.login({ mode });
+        }
+
+        document.getElementById('loginUi').addEventListener('click', async () => {
             try {
-                const tokens = localStorage.getItem('zenux_oauth_tokens');
-                return tokens ? JSON.parse(tokens) : null;
-            } catch {
-                return null;
+                await runLogin('ui');
+            } catch (error) {
+                setStatus(`UI login failed: ${error.message}`, 'error');
             }
-        }
+        });
 
-        function storeTokens(tokens) {
-            localStorage.setItem('zenux_oauth_tokens', JSON.stringify(tokens));
-        }
+        document.getElementById('loginPopup').addEventListener('click', async () => {
+            try {
+                await runLogin('popup');
+            } catch (error) {
+                setStatus(`Popup login failed: ${error.message}`, 'error');
+            }
+        });
 
-        function showResult(message, type = 'info') {
-            const resultDiv = document.getElementById('result');
-            resultDiv.className = type;
-            resultDiv.textContent = message;
-            resultDiv.classList.remove('hidden');
-        }
+        document.getElementById('loginRedirect').addEventListener('click', async () => {
+            try {
+                await runLogin('redirect');
+            } catch (error) {
+                setStatus(`Redirect login failed: ${error.message}`, 'error');
+            }
+        });
 
-        // Check if we're already logged in
-        window.addEventListener('load', () => {
-            const tokens = getTokensFromStorage();
-            if (tokens && tokens.access_token) {
-                showResult('Already logged in!', 'success');
+        document.getElementById('loginManual').addEventListener('click', async () => {
+            try {
+                const authData = await oauth.login({ mode: 'manual' });
+                manualHrefEl.href = authData.url;
+                manualHrefEl.textContent = authData.url;
+                manualLinkEl.style.display = 'block';
+                setStatus('Manual URL generated. Open it in this tab or another one.', 'success');
+            } catch (error) {
+                setStatus(`Manual flow failed: ${error.message}`, 'error');
+            }
+        });
+
+        document.getElementById('loadProfile').addEventListener('click', async () => {
+            try {
+                const profile = await oauth.getUserInfo();
+                renderProfile(profile);
+                setStatus('User info loaded.', 'success');
+            } catch (error) {
+                setStatus(`User info failed: ${error.message}`, 'error');
+            }
+        });
+
+        document.getElementById('logout').addEventListener('click', async () => {
+            try {
+                await oauth.logout();
+            } catch (error) {
+                setStatus(`Logout failed: ${error.message}`, 'error');
+            }
+        });
+
+        window.addEventListener('load', async () => {
+            try {
+                const result = await oauth.init();
+                const existingTokens = oauth.getTokens();
+
+                if (result && result.access_token) {
+                    setStatus('Callback detected and completed automatically on this page.', 'success');
+                    renderTokens(result);
+                    return;
+                }
+
+                if (existingTokens && existingTokens.access_token) {
+                    setStatus('Existing session found.', 'success');
+                    renderTokens(existingTokens);
+                    return;
+                }
+
+                setStatus('Ready. Choose a login mode to begin.', '');
+                renderTokens(null);
+            } catch (error) {
+                setStatus(`Init failed: ${error.message}`, 'error');
             }
         });
     </script>

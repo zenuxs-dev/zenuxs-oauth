@@ -3,112 +3,155 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Processing Login...</title>
+    <title>Zenux OAuth Dedicated Callback Demo</title>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .success { color: green; }
-        .error { color: red; }
+        :root {
+            --bg: #f6f9fc;
+            --card: #ffffff;
+            --ink: #102033;
+            --muted: #607286;
+            --line: #d5e0ea;
+            --success: #0f6a3a;
+            --success-bg: #e8f8ef;
+            --error: #8b1d1d;
+            --error-bg: #fdecec;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            background:
+                radial-gradient(circle at top, rgba(15, 124, 255, 0.12), transparent 35%),
+                var(--bg);
+            font-family: "Segoe UI", system-ui, sans-serif;
+            color: var(--ink);
+        }
+
+        .card {
+            width: min(680px, 100%);
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            padding: 28px;
+            box-shadow: 0 18px 40px rgba(16, 32, 51, 0.08);
+        }
+
+        h1 {
+            margin: 0 0 10px;
+            font-size: 32px;
+        }
+
+        p {
+            margin: 0 0 14px;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+
+        .status {
+            border-radius: 18px;
+            padding: 14px 16px;
+            margin: 18px 0;
+            background: #edf4fb;
+            color: var(--ink);
+            line-height: 1.6;
+        }
+
+        .status.success {
+            background: var(--success-bg);
+            color: var(--success);
+        }
+
+        .status.error {
+            background: var(--error-bg);
+            color: var(--error);
+        }
+
+        pre {
+            margin: 0;
+            padding: 16px;
+            border-radius: 18px;
+            background: #edf4fb;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font: 13px/1.6 Consolas, "Courier New", monospace;
+        }
+
+        a {
+            color: #0b5fcc;
+        }
     </style>
 </head>
 <body>
-    <div id="status">
-        <div class="spinner"></div>
-        <p>Processing authentication...</p>
-    </div>
+    <main class="card">
+        <h1>Dedicated callback page</h1>
+        <p>
+            This page is only needed if you want a separate redirect URI such as
+            <code>/callback.html</code>. The SDK no longer requires a dedicated callback page
+            for normal browser use.
+        </p>
+        <p>
+            To use this demo, start login from <code>index.html</code> or your own app with
+            <code>redirectUri</code> set to this file.
+        </p>
 
-    <script src="https://unpkg.com/zenuxs-oauth"></script>
+        <div id="status" class="status">Waiting for OAuth callback parameters...</div>
+        <pre id="output">No callback handled yet.</pre>
+
+        <p style="margin-top: 18px;">
+            Return to <a href="./index.html">the same-page demo</a>.
+        </p>
+    </main>
+
+    <script src="../../dist/zenux-oauth.js"></script>
     <script>
-        (async function() {
-            try {
-                // First, let's see what we have in the URL
-                const urlParams = new URLSearchParams(window.location.search);
-                const code = urlParams.get('code');
-                const state = urlParams.get('state');
-                const error = urlParams.get('error');
-                
-                console.log('URL Parameters:', { code: !!code, state, error });
-                
-                if (error) {
-                    throw new Error(`OAuth error: ${error} - ${urlParams.get('error_description') || ''}`);
-                }
-                
-                if (!code) {
-                    throw new Error('No authorization code found in URL');
-                }
-                
-                // Create OAuth instance with the same config as login page
-                const config = {
-                    clientId: 'f13975eff3604b2e',
-                    redirectUri: window.location.origin + window.location.pathname,
-                    scopes: 'openid profile email',
-                    debug: true,
-                    fetchFunction: window.fetch.bind(window),
-                    validateState: false, // Temporarily disable for debugging
-                    storage: window.opener ? 'sessionStorage' : 'localStorage' // Use sessionStorage if opened in popup
-                };
-                
-                console.log('Creating OAuth instance with config:', config);
-                
-                const oauth = new ZenuxOAuth(config);
-                
-                // Handle the callback
-                const tokens = await oauth.handleCallback();
-                console.log('Tokens received:', tokens);
-                
-                // Show success
-                document.getElementById('status').innerHTML = `
-                    <div class="success">✓ Authentication successful!</div>
-                    <p>Redirecting to main app...</p>
-                `;
-                
-                // Store tokens
-                localStorage.setItem('zenux_oauth_tokens', JSON.stringify(tokens));
-                
-                // If opened in popup, send tokens to parent window
-                if (window.opener && !window.opener.closed) {
-                    window.opener.postMessage({
-                        type: 'oauth-success',
-                        tokens: tokens
-                    }, window.location.origin);
-                    
-                    // Close popup after sending message
-                    setTimeout(() => window.close(), 1000);
-                } else {
-                    // Standard redirect flow
-                    setTimeout(() => {
-                        window.location.href = '/';
-                    }, 1000);
-                }
-                
-            } catch (error) {
-                console.error('Authentication error:', error);
-                
-                document.getElementById('status').innerHTML = `
-                    <div class="error">✗ Authentication failed</div>
-                    <p>Error: ${error.message || error}</p>
-                    <p>Code: ${error.code || 'Unknown'}</p>
-                    <button onclick="window.location.href='/'">Go to Home</button>
-                    <button onclick="retryLogin()">Try Again</button>
-                `;
-                
-                // Send error to parent if in popup
-                if (window.opener && !window.opener.closed) {
-                    window.opener.postMessage({
-                        type: 'oauth-error',
-                        error: error.message || 'Unknown error'
-                    }, window.location.origin);
-                }
-            }
-        })();
-        
-        function retryLogin() {
-            // Clear storage and redirect to login
-            localStorage.clear();
-            sessionStorage.clear();
-            window.location.href = '/index.html';
+        const statusEl = document.getElementById('status');
+        const outputEl = document.getElementById('output');
+
+        function setStatus(message, type) {
+            statusEl.className = `status${type ? ` ${type}` : ''}`;
+            statusEl.textContent = message;
         }
+
+        const oauth = new ZenuxOAuth({
+            clientId: 'f13975eff3604b2e',
+            storage: 'localStorage',
+            debug: true
+        });
+
+        window.addEventListener('load', async () => {
+            try {
+                const result = await oauth.init({ closePopup: false });
+                const tokens = oauth.getTokens();
+
+                if (result && result.access_token) {
+                    setStatus('Dedicated callback completed successfully.', 'success');
+                    outputEl.textContent = JSON.stringify(result, null, 2);
+                    return;
+                }
+
+                if (tokens && tokens.access_token) {
+                    setStatus('Tokens are already available in storage.', 'success');
+                    outputEl.textContent = JSON.stringify(tokens, null, 2);
+                    return;
+                }
+
+                setStatus('This page did not receive a callback yet.', '');
+            } catch (error) {
+                setStatus(`Callback failed: ${error.message}`, 'error');
+                outputEl.textContent = JSON.stringify({
+                    code: error.code,
+                    message: error.message,
+                    details: error.details || null
+                }, null, 2);
+            }
+        });
     </script>
 </body>
 </html>

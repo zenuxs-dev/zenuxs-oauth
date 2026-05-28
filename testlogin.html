@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zenux OAuth Test Login</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at top, rgba(15, 124, 255, 0.14), transparent 35%),
+        #f5f8fc;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: #102033;
+    }
+
+    .card {
+      width: min(92vw, 460px);
+      padding: 28px;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid rgba(148, 163, 184, 0.24);
+      box-shadow: 0 24px 54px rgba(15, 23, 42, 0.14);
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 30px;
+    }
+
+    p {
+      margin: 0 0 18px;
+      line-height: 1.7;
+      color: #607286;
+    }
+
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 13px 18px;
+      font: 600 15px/1 "Segoe UI", system-ui, sans-serif;
+      background: #0f7cff;
+      color: #ffffff;
+      cursor: pointer;
+    }
+
+    pre {
+      margin: 18px 0 0;
+      padding: 14px;
+      border-radius: 16px;
+      background: #edf4fb;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font: 13px/1.6 Consolas, "Courier New", monospace;
+      color: #102033;
+    }
+  </style>
+</head>
+
+<body>
+  <main class="card">
+    <h1>Same-page OAuth test</h1>
+    <p>
+      This page uses the embedded bottom-sheet UI with automatic fallback when the provider
+      cannot continue safely inside the iframe.
+    </p>
+    <button id="login">Continue with Zenuxs</button>
+    <pre id="log">Waiting...</pre>
+  </main>
+<button id="exportLogs" style="margin-top: 12px;">📥 Export Debug Logs</button>
+
+  <script src="./dist/zenux-oauth.js"></script>
+  <script>
+    const log = document.getElementById('log');
+
+    const oauth = new ZenuxOAuth({
+      clientId: 'da19b9681f660014',
+      theme: 'dark',
+      uiFallbackMode: 'popup',
+      uiCloseConfirm: true,
+      debug: true
+    });
+
+   document.getElementById('exportLogs')?.addEventListener('click', () => {
+    if (typeof oauth.exportDebugLogs === 'function') {
+        oauth.exportDebugLogs();
+    } else {
+        console.warn('exportDebugLogs not available – check that you updated zenux-oauth.js');
+        // Fallback: manually show logs in console
+        if (oauth._debugLogs) console.table(oauth._debugLogs);
+        else console.log('No debug logs found');
+    }
+});
+    const write = (value) => {
+      log.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    };
+
+    oauth.on('login', (tokens) => {
+      write({ event: 'login', tokens });
+    });
+
+    oauth.on('error', (error) => {
+      write({
+        event: 'error',
+        code: error.code,
+        message: error.message
+      });
+    });
+
+    window.addEventListener('load', async () => {
+      const result = await oauth.init();
+      if (result && result.access_token) {
+        write({ event: 'callback-complete', tokens: result });
+        return;
+      }
+
+      if (oauth.getTokens()) {
+        write({ event: 'session-found', tokens: oauth.getTokens() });
+        return;
+      }
+
+      write('Ready. Click the button to start.');
+    });
+
+    document.getElementById('login').addEventListener('click', async () => {
+      await oauth.login({
+        mode: 'popup',
+      });
+    });
+  </script>
+</body>
+
+</html>

@@ -1,67 +1,25 @@
-/**
- * Main entry point that auto-detects environment
- * Exports appropriate client based on environment
- */
+'use strict';
 
-import { OAuthClient as CoreOAuthClient } from './core/client.js';
-export { OAuthError, InvalidConfigError, TokenError, NetworkError } from './core/errors.js';
-export { generateRandomString, generatePKCEChallenge } from './core/pkce.js';
-export { buildAuthorizationUrl, parseCallbackUrl } from './core/urls.js';
-export { parseTokenResponse, isTokenExpired, decodeJWT, validateTokenStructure } from './core/tokens.js';
+const ZenuxOAuth = require('./zenux-oauth.js');
 
-// Detect environment
-const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
-const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
-
-let OAuthClient = CoreOAuthClient;
-
-if (isBrowser) {
-  import('./browser/client.js').then(module => {
-    OAuthClient = module.default || module.OAuthClient;
-  }).catch(() => {
-    console.warn('Failed to load browser module, using core OAuth client');
-  });
-} else if (isNode) {
-  import('./server/client.js').then(module => {
-    OAuthClient = module.default || module.OAuthClient;
-  }).catch(() => {
-    console.warn('Failed to load server module, using core OAuth client');
-  });
+async function createOAuthClient(config) {
+    return new ZenuxOAuth(config);
 }
 
-export { OAuthClient };
-export default OAuthClient;
-
-export async function createOAuthClient(config) {
-  if (isBrowser) {
-    const { BrowserOAuthClient } = await import('./browser/client.js');
-    return new BrowserOAuthClient(config);
-  } else if (isNode) {
-    const { ServerOAuthClient } = await import('./server/client.js');
-    return new ServerOAuthClient(config);
-  }
-  
-  // Fallback to core client
-  return new CoreOAuthClient(config);
+async function login(config, options = {}) {
+    const client = new ZenuxOAuth(config);
+    return client.login(options);
 }
 
-// Export browser-specific helpers conditionally
-export async function login(config, options = {}) {
-  if (!isBrowser) {
-    throw new Error('login() is only available in browser environments');
-  }
-  
-  const { BrowserOAuthClient } = await import('./browser/client.js');
-  const client = new BrowserOAuthClient(config);
-  return client.login(options);
+async function handleCallback(config, callbackUrl = null, options = {}) {
+    const client = new ZenuxOAuth(config);
+    return client.handleCallback(callbackUrl, options);
 }
 
-export async function handleCallback(config, options = {}) {
-  if (!isBrowser) {
-    throw new Error('handleCallback() is only available in browser environments');
-  }
-  
-  const { BrowserOAuthClient } = await import('./browser/client.js');
-  const client = new BrowserOAuthClient(config);
-  return client.handleCallback(options);
-}
+module.exports = ZenuxOAuth;
+module.exports.default = ZenuxOAuth;
+module.exports.ZenuxOAuth = ZenuxOAuth;
+module.exports.ZenuxOAuthError = ZenuxOAuth.ZenuxOAuthError;
+module.exports.createOAuthClient = createOAuthClient;
+module.exports.login = login;
+module.exports.handleCallback = handleCallback;
