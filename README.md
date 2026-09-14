@@ -2,28 +2,41 @@
 
 Universal OAuth 2.0 + PKCE client for Zenuxs auth.
 
-It works in browsers, Node.js, React, Next.js, React Native, and hybrid apps with one small API:
+Works seamlessly in browsers, Node.js, React, Next.js, React Native, and hybrid applications with one simple API:
 
 ```js
 const oauth = new ZenuxOAuth({ clientId: 'your-client-id' });
 ```
 
-Everything else is optional.
+---
 
-## Highlights
+> [!CRITICAL]
+> ## ⚠️ STRICT RULE FOR DEVELOPERS & AI AGENTS: USE INBUILT SDK FUNCTIONS ONLY
+> **DO NOT write manual HTTP requests, raw `fetch`/`axios` calls, or custom OAuth endpoints** (e.g. manually constructing `/oauth/authorize` URLs, calculating manual SHA-256 PKCE challenges, manual `/oauth/token` calls, or calling Discord/GitHub member join APIs directly).
+>
+> Direct API calls **DO NOT WORK**, bypass required token signatures, break PKCE/state verification, and are completely unsupported.
+>
+> **ALWAYS use the SDK's built-in methods:**
+> - **Login**: `await oauth.login({ mode: 'redirect' })` or `await oauth.login({ mode: 'popup' })`
+> - **Tag UI**: `<zenuxs-auth>` custom element
+> - **Backend Callback & Code Exchange**: `await oauth.handleCallback({ request })` or `await oauth.exchangeCodeForTokens(code, { clientSecret, redirectUri })`
+> - **User Profile & Social Data**: `await oauth.getUserInfo()`
+> - **Authenticated Requests**: `oauth.getAuthenticatedFetch()`
+> - **Token Management**: `oauth.getTokens()`, `oauth.refreshTokens()`, `oauth.logout()`
 
-- Minimal setup: only `clientId` is required
-- Auto-detects `fetch` in browser and modern Node runtimes
-- Auto-detects a usable storage adapter
-- Frontend modes: `ui`, `popup`, `redirect`, `manual`
-- `redirect` is the default mode in browsers
-- `redirect` is the default mode on the backend
-- Embedded UI supports `light`, `dark`, and `auto` themes
-- Social providers can fall back from embedded mode to popup or full page
-- Same-page callback handling works automatically
-- Manual flow is still available when you want full control
-- Built-in token refresh, user info, logout, and authenticated fetch
-- **`<zenuxs-auth>` custom element** for tag-based auth UI (works in plain HTML, React, Next.js, and any framework)
+---
+
+## 3 Supported Authentication Modes
+
+Zenuxs OAuth supports exactly **3 clean, reliable modes**:
+
+1. **`<zenuxs-auth>` Custom Element** — Drop-in HTML tag for an inline, persistent authentication box (HTML, React, Next.js, Vue).
+2. **`redirect` Mode** — Full-page standard OAuth 2.0 redirect. Recommended default for standard web apps and server-side routes.
+3. **`popup` Mode** — Clean popup window that opens the auth flow and closes automatically on success, returning tokens to the parent page.
+
+*(Note: The auth server is hardcoded internally to `https://api.auth.zenuxs.in` — you do not need to specify `authServer`).*
+
+---
 
 ## Installation
 
@@ -37,11 +50,11 @@ Browser CDN:
 <script src="https://unpkg.com/zenuxs-oauth@7/dist/zenux-oauth.min.js"></script>
 ```
 
-## Quick Start
+---
 
-### `<zenuxs-auth>` Tag (Recommended)
+## Mode 1: `<zenuxs-auth>` Tag (Recommended for UI)
 
-The simplest way to add authentication. Drop the tag anywhere in your HTML — it renders a persistent, inline login UI:
+The simplest way to add authentication to any webpage. Drop the tag anywhere in your HTML:
 
 ```html
 <script src="https://unpkg.com/zenuxs-oauth@7/dist/zenux-oauth.min.js"></script>
@@ -49,60 +62,58 @@ The simplest way to add authentication. Drop the tag anywhere in your HTML — i
 <zenuxs-auth
   client-id="your-client-id"
   redirect-uri="https://your-app.com/callback"
-  scope="openid profile email"
+  scope="openid profile email discord:profile"
   theme="dark"
   height="540px"
 ></zenuxs-auth>
 
 <script>
   document.querySelector('zenuxs-auth').addEventListener('success', (e) => {
-    console.log('Logged in!', e.detail);
+    console.log('Logged in successfully!', e.detail);
+    // e.detail contains access_token, id_token, etc.
   });
 </script>
 ```
 
-#### Tag Attributes
+### Tag Attributes
 
-| Attribute | Default | Description |
-| --- | --- | --- |
-| `client-id` | (required) | OAuth client ID |
-| `redirect-uri` | current page | OAuth redirect URI |
-| `scope` | `openid profile email` | Requested scopes |
-| `auth-server` | `https://api.auth.zenuxs.in` | Auth server URL |
-| `theme` | `auto` | `auto`, `light`, or `dark` |
-| `height` | `540px` | Height of the auth UI |
-| `width` | `100%` | Width of the auth UI |
-| `redirect-url` | `/` | Where to navigate after auth success |
-| `redirect-delay` | `1` | Seconds to wait before redirect (default 1s) |
-| `auto-redirect` | `true` | Auto redirect after success (default: true, set `false` to disable) |
+| Attribute | Required | Default | Description |
+| --- | --- | --- | --- |
+| `client-id` | **Yes** | - | OAuth client ID |
+| `redirect-uri` | No | current page | OAuth redirect URI |
+| `scope` | No | `openid profile email` | Requested OAuth scopes (space-separated) |
+| `theme` | No | `auto` | `auto`, `light`, or `dark` |
+| `height` | No | `540px` | Height of the auth UI container |
+| `width` | No | `100%` | Width of the auth UI container |
+| `redirect-url` | No | `/` | Where to navigate after successful auth |
+| `redirect-delay` | No | `1` | Seconds to wait before navigating (default 1s) |
+| `auto-redirect` | No | `true` | Set to `false` to handle redirect in JavaScript |
 
-#### Tag Events
+### Tag Events
 
 | Event | Detail | Description |
 | --- | --- | --- |
-| `success` | `{ access_token, id_token, ... }` | Fired on successful authentication |
-| `error` | `{ message, code, ... }` | Fired on authentication error |
-| `redirect` | `{ targetUrl, delay, result }` | Fired before auto-redirect |
-
-> **Note:** `<zenux-auth>` still works as a backward-compatible alias for `<zenuxs-auth>`.
+| `success` | `{ access_token, id_token, ... }` | Fired when user completes authentication |
+| `error` | `{ message, code, ... }` | Fired on error |
+| `redirect` | `{ targetUrl, delay, result }` | Fired right before auto-redirect navigation |
 
 ---
 
-### React
+### React / Next.js Component Example
 
 ```jsx
-import 'zenuxs-oauth'; // registers <zenuxs-auth> custom element
+import React, { useEffect, useRef } from 'react';
+import 'zenuxs-oauth'; // Registers <zenuxs-auth> custom element
 
-function LoginPage() {
-  const authRef = React.useRef(null);
+export default function LoginPage() {
+  const authRef = useRef(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const el = authRef.current;
     if (!el) return;
 
     const onSuccess = (e) => {
-      console.log('Authenticated!', e.detail);
-      // e.detail has access_token, id_token, etc.
+      console.log('Authenticated tokens:', e.detail);
     };
 
     const onError = (e) => {
@@ -111,6 +122,7 @@ function LoginPage() {
 
     el.addEventListener('success', onSuccess);
     el.addEventListener('error', onError);
+
     return () => {
       el.removeEventListener('success', onSuccess);
       el.removeEventListener('error', onError);
@@ -118,516 +130,240 @@ function LoginPage() {
   }, []);
 
   return (
-    <zenuxs-auth
-      ref={authRef}
-      client-id="your-client-id"
-      redirect-uri="http://localhost:3000/callback"
-      scope="openid profile email"
-      theme="dark"
-      height="540px"
-    />
+    <div style={{ maxWidth: 480, margin: '40px auto' }}>
+      <zenuxs-auth
+        ref={authRef}
+        client-id="your-client-id"
+        redirect-uri="https://your-app.com/dashboard"
+        scope="openid profile email discord:profile"
+        theme="dark"
+        height="540px"
+      />
+    </div>
   );
 }
-```
-
-### Next.js (App Router)
-
-```jsx
-'use client';
-import { useEffect, useRef } from 'react';
-
-export default function LoginPage() {
-  const authRef = useRef(null);
-
-  useEffect(() => {
-    // Dynamic import so the custom element only registers in the browser
-    import('zenuxs-oauth');
-
-    const el = authRef.current;
-    if (!el) return;
-
-    const onSuccess = (e) => {
-      console.log('Authenticated!', e.detail);
-    };
-
-    el.addEventListener('success', onSuccess);
-    return () => el.removeEventListener('success', onSuccess);
-  }, []);
-
-  return (
-    <zenuxs-auth
-      ref={authRef}
-      client-id="your-client-id"
-      redirect-uri="http://localhost:3000/callback"
-      scope="openid profile email"
-      theme="dark"
-      height="540px"
-    />
-  );
-}
-```
-
-### Next.js (Pages Router)
-
-```jsx
-import dynamic from 'next/dynamic';
-import { useEffect, useRef } from 'react';
-
-// Prevent SSR of the auth component
-function ZenuxsLogin() {
-  const authRef = useRef(null);
-
-  useEffect(() => {
-    require('zenuxs-oauth');
-
-    const el = authRef.current;
-    if (!el) return;
-
-    const onSuccess = (e) => {
-      console.log('Authenticated!', e.detail);
-    };
-
-    el.addEventListener('success', onSuccess);
-    return () => el.removeEventListener('success', onSuccess);
-  }, []);
-
-  return (
-    <zenuxs-auth
-      ref={authRef}
-      client-id="your-client-id"
-      redirect-uri="http://localhost:3000/callback"
-      scope="openid profile email"
-      theme="dark"
-      height="540px"
-    />
-  );
-}
-
-export default dynamic(() => Promise.resolve(ZenuxsLogin), { ssr: false });
 ```
 
 ---
 
-### Browser, JavaScript API (Default UI mode)
+## Mode 2: `redirect` Mode (Programmatic Full Page)
 
-```html
-<button id="login">Continue with Zenuxs</button>
+In `redirect` mode, the SDK redirects the user's browser to the Zenuxs authentication page. Upon successful sign-in, Zenuxs redirects back to your `redirectUri` with the authorization code.
 
-<script src="https://unpkg.com/zenuxs-oauth@7/dist/zenux-oauth.min.js"></script>
-<script>
+```javascript
+import ZenuxOAuth from 'zenuxs-oauth';
+
 const oauth = new ZenuxOAuth({
   clientId: 'your-client-id',
-  theme: 'auto'
+  redirectUri: 'https://your-app.com/callback',
+  scopes: 'openid profile email discord:profile'
 });
 
-  oauth.on('login', (tokens) => {
-    console.log('Logged in', tokens);
-  });
+// 1. Trigger login redirect
+await oauth.login({ mode: 'redirect' });
 
-  oauth.on('error', (error) => {
-    console.error('OAuth error', error);
-  });
+// 2. On your callback page (https://your-app.com/callback):
+await oauth.init(); // automatically parses URL, exchanges code, and stores tokens
 
-  window.addEventListener('load', async () => {
-    await oauth.init();
-  });
-
-  document.getElementById('login').addEventListener('click', async () => {
-    await oauth.login();
-  });
-</script>
+// 3. Retrieve user profile
+const userInfo = await oauth.getUserInfo();
+console.log('User:', userInfo);
 ```
 
-### Browser modes
+---
 
-```js
-const oauth = new ZenuxOAuth({ clientId: 'your-client-id' });
+## Mode 3: `popup` Mode (Clean Modal Window)
 
-await oauth.login();                    // default browser mode: ui
-await oauth.login({ mode: 'ui' });      // embedded bottom-sheet auth
-await oauth.login({ mode: 'popup' });   // popup window
-await oauth.login({ mode: 'redirect' });// full-page redirect
+Opens a popup window without navigating the user away from your current page. Once completed, the popup closes automatically and returns tokens to your application:
 
-const authData = await oauth.login({ mode: 'manual' });
-console.log(authData.url);
-```
+```javascript
+import ZenuxOAuth from 'zenuxs-oauth';
 
-Mode aliases:
-
-- `inui`
-- `iframe`
-
-Both map to `ui`.
-
-### Theme and smoother embedded UI
-
-```js
 const oauth = new ZenuxOAuth({
   clientId: 'your-client-id',
-  theme: 'dark',
-  uiTitle: 'Continue with Zenuxs',
-  uiDescription: 'Secure sign in in a bottom sheet.',
-  uiFallbackMode: 'popup'
+  scopes: 'openid profile email discord:profile'
+});
+
+try {
+  const tokens = await oauth.login({ mode: 'popup' });
+  console.log('Authenticated via popup:', tokens);
+
+  const userInfo = await oauth.getUserInfo();
+  console.log('User profile:', userInfo);
+} catch (error) {
+  console.error('Popup sign-in failed or closed:', error.message);
+}
+```
+
+---
+
+## Supported Scopes & Discord Server Auto-Join
+
+Zenuxs OAuth scopes control what user information and permissions are granted:
+
+### Identity Scopes
+| Scope | Claims Returned in `getUserInfo()` | Description |
+| --- | --- | --- |
+| `openid` | `sub` | Unique Zenuxs user identifier |
+| `profile` | `name`, `preferred_username`, `given_name`, `family_name`, `picture` | Name, username, and avatar URL |
+| `email` | `email`, `email_verified` | Primary email and verification status |
+| `number` | `phone`, `phone_verified` | Verified phone number |
+
+### Social Scopes
+| Scope | Claims Returned | Description |
+| --- | --- | --- |
+| `discord` or `discord:profile` | `discord: { id, username, discriminator, avatar, email }` | Connected Discord account details |
+| `discord:guilds` | `discord_guilds: [...]` | List of Discord servers the user is in |
+| `discord:join_server:<target>` | `discord_join_server: true` | **Automatically joins user to your Discord server** |
+| `github` or `github:profile` | `github: { id, username, name, avatar, email, bio, public_repos }` | Connected GitHub account profile |
+| `github:repos` | `github_repos: [...]` | List of user's GitHub repositories |
+| `github:commit` | `github_commit: true` | Commit permissions |
+| `google` or `google:profile` | `google: { id, email, name, avatar }` | Connected Google account info |
+
+### How `discord:join_server` Works
+Pass your **Discord Guild ID** (or invite link) directly in the scope string:
+
+```text
+discord:join_server:1289796285678882847
+```
+*(or `discord:join_server:https://discord.gg/your-invite`)*
+
+```javascript
+const oauth = new ZenuxOAuth({
+  clientId: 'your-client-id',
+  scopes: 'openid profile email discord:profile discord:join_server:1289796285678882847'
 });
 ```
 
-Theme options:
+> [!TIP]
+> **Zero Extra Code Required:** When `discord:join_server:<target>` is present, the **Zenuxs server automatically adds the user to your Discord server** as soon as they authorize the OAuth prompt. You do **not** need to make manual calls to Discord's API with user tokens!
+>
+> *(Note: The Discord bot configured in Zenuxs must already be in the target server with "Create Instant Invite" permission).*
 
-- `auto`
-- `light`
-- `dark`
+---
 
-The embedded `ui` mode now:
+## Fetching User Data with `getUserInfo()`
 
-- opens as a bottom sheet instead of a plain centered iframe box
-- shows a loading screen while auth is starting and while the callback is finishing
-- asks for confirmation before closing with the `X` button
-- can move to popup or full-page redirect when embedded provider login does not work
+Always use `oauth.getUserInfo()` to retrieve profile and social account data. Do **not** call raw APIs manually.
 
-### Social provider fallback
+```javascript
+const userInfo = await oauth.getUserInfo();
 
-Some providers such as Google, Discord, and GitHub often do not behave well inside iframes.
+// Standard profile
+console.log(userInfo.sub);      // "673f8a9b..."
+console.log(userInfo.name);     // "Alex Smith"
+console.log(userInfo.email);    // "alex@example.com"
 
-The SDK now helps in two ways:
+// Discord data (when discord:profile scope is requested)
+if (userInfo.discord) {
+  console.log(userInfo.discord.id);          // Discord Snowflake ID
+  console.log(userInfo.discord.username);    // Discord username
+  console.log(userInfo.discord.avatar);      // Discord avatar CDN URL
+  console.log(userInfo.discord.email);       // Discord email
+}
 
-1. If you directly request one of those providers, `ui` mode is promoted to `popup` automatically.
-2. If embedded auth returns to your page without usable callback params, the SDK can move the flow to popup or full page.
-
-Example:
-
-```js
-await oauth.login({
-  mode: 'ui',
-  provider: 'google',
-  uiFallbackMode: 'popup'
-});
+// Discord Guilds (when discord:guilds scope is requested)
+if (userInfo.discord_guilds) {
+  console.log(userInfo.discord_guilds);      // Array of Discord guilds
+}
 ```
 
-### Node.js, same route (with non-public clientSecret)
+> [!IMPORTANT]
+> **Token Clarification**: `tokens.access_token` returned by Zenuxs OAuth is a **Zenuxs OAuth access token** (JWT / RS256) used with `getUserInfo()` or your backend API. It is **not** a raw Discord or GitHub access token and should not be sent directly to `discord.com/api`.
 
-For confidential server-side clients, pass `clientSecret` (kept secure on your backend, never exposed in browsers):
+---
 
-```js
+## Backend / Node.js & Express Usage
+
+For confidential backend servers (Node.js, Express, Next.js API routes), keep your `clientSecret` secure in environment variables:
+
+```javascript
 const express = require('express');
-const session = require('express-session');
 const ZenuxOAuth = require('zenuxs-oauth');
 
 const app = express();
 
-app.use(session({
-  secret: 'replace-me',
-  resave: false,
-  saveUninitialized: false
-}));
-
-// Confidential backend client: uses both clientId and non-public clientSecret
 const oauth = new ZenuxOAuth({
   clientId: process.env.ZENUX_CLIENT_ID,
-  clientSecret: process.env.ZENUX_CLIENT_SECRET
+  clientSecret: process.env.ZENUX_CLIENT_SECRET, // Confidential secret (server-side only)
+  redirectUri: 'https://your-domain.com/auth/callback',
+  scopes: 'openid profile email discord:profile discord:join_server:1289796285678882847'
 });
 
-app.get('/login', async (req, res, next) => {
-  try {
-    const tokens = await oauth.login({
-      request: req,
-      response: res
-    });
-
-    if (!tokens) {
-      return;
-    }
-
-    req.session.tokens = tokens;
-    res.redirect('/dashboard');
-  } catch (error) {
-    next(error);
-  }
-});
-```
-
-### Node.js, manual flow
-
-```js
-const oauth = new ZenuxOAuth({
-  clientId: process.env.ZENUX_CLIENT_ID,
-  clientSecret: process.env.ZENUX_CLIENT_SECRET, // Non-public client secret
-  redirectUri: 'https://your-app.com/auth/callback'
-});
-
+// 1. Step 1: Initiate OAuth Login
 app.get('/auth/login', async (req, res) => {
   const authData = await oauth.login({ mode: 'manual' });
   res.redirect(authData.url);
 });
 
+// 2. Step 2: Handle OAuth Callback using built-in handleCallback
 app.get('/auth/callback', async (req, res) => {
-  const tokens = await oauth.handleCallback({ request: req });
-  res.json(tokens);
-});
-```
+  try {
+    const tokens = await oauth.handleCallback({ request: req });
+    // tokens contains: { access_token, token_type, expires_in, refresh_token, id_token }
 
-## Public vs Confidential (Non-Public) Clients
+    // Fetch user profile using built-in method
+    const userInfo = await oauth.getUserInfo();
+    console.log('Logged in user:', userInfo.name, userInfo.discord?.username);
 
-- **Public Clients (Browser SPAs, Mobile Apps)**:
-  - Run in environments where credentials cannot be kept confidential.
-  - Setup: Only provide `clientId`.
-  - Security: Uses OAuth 2.0 PKCE (S256 challenge & code verifier) automatically.
-  - **Never** expose `clientSecret` in frontend client code.
-
-- **Confidential / Non-Public Clients (Node.js, Express, Backends)**:
-  - Run on secure servers where secrets can be protected via environment variables.
-  - Setup: Provide both `clientId` and `clientSecret`.
-  - Security: `clientSecret` is automatically included in backend token exchanges, refreshes, revocations, and introspection.
-
-## Default Behavior
-
-### Frontend defaults
-
-- default mode: `redirect`
-- redirect URI: current page without `code`, `state`, or OAuth error params
-- fetch: auto-detected
-- storage: auto-detected
-
-### Backend defaults
-
-- default mode: `redirect`
-- fetch: auto-detected from `globalThis.fetch`, `node-fetch`, or `undici`
-- storage: in-memory unless you pass your own adapter
-
-### Post-auth redirect defaults (tag & mount mode)
-
-- **auto-redirect**: enabled by default (redirects to `/` after auth)
-- **redirect-delay**: 1 second
-- **redirect-url**: `/` (root path)
-
-Set `auto-redirect="false"` on the tag to disable automatic redirection.
-
-## Configuration
-
-Only `clientId` is required for public clients; confidential backend clients also supply `clientSecret`.
-
-```js
-const oauth = new ZenuxOAuth({
-  clientId: 'your-client-id',
-  clientSecret: 'your-non-public-client-secret', // backend only!
-  redirectUri: 'https://your-app.com/login',
-  scopes: 'openid profile email',
-  mode: 'ui',
-  frontendMode: 'ui',
-  backendMode: 'redirect',
-  storage: 'sessionStorage',
-  storagePrefix: 'zenux_oauth_',
-  fetch: fetch,
-  debug: true,
-  theme: 'auto',
-  usePKCE: true,
-  validateState: true,
-  autoRefresh: true,
-  refreshThreshold: 60,
-  popupWidth: 540,
-  popupHeight: 720,
-  uiWidth: 460,
-  uiHeight: 720,
-  uiFallbackMode: 'popup',
-  uiAllowRedirectFallback: true,
-  uiCloseConfirm: true,
-  extraAuthParams: {
-    prompt: 'login'
+    res.redirect('/dashboard');
+  } catch (error) {
+    console.error('Callback failed:', error.message);
+    res.redirect('/login?error=' + encodeURIComponent(error.message));
   }
 });
 ```
 
-### Important options
+---
 
-| Option | Required | Default | Notes |
-| --- | --- | --- | --- |
-| `clientId` | yes | - | OAuth Application Client ID |
-| `clientSecret` | no (required for non-public backend) | `null` | Confidential secret for backend token exchange. Keep secret! |
-| `redirectUri` | no | current page in browser | Useful for dedicated callback routes |
-| `mode` | no | environment default | `ui` (or `inui`), `popup`, `redirect`, `manual` |
-| `frontendMode` | no | `ui` | Browser default |
-| `backendMode` | no | `redirect` | Server default |
-| `theme` | no | `auto` | Embedded UI theme: `auto`, `light`, or `dark` |
-| `storage` | no | `auto` | `sessionStorage`, `localStorage`, `memory`, `Map`, or custom adapter |
-| `fetch` / `fetchFunction` | no | auto | Override only when needed |
-| `uiFallbackMode` | no | `popup` | Preferred fallback when embedded provider auth cannot continue |
-| `uiAllowRedirectFallback` | no | `true` | Allows full-page fallback when popup is blocked or not desired |
-| `uiCloseConfirm` | no | `true` | Ask for confirmation before closing the embedded sheet |
-| `debug` | no | `false` | Logs SDK internals |
-| `autoRefresh` | no | `false` | Refreshes access tokens when possible |
+## SDK Configuration Options
 
-## Redirect URI Matching
-
-The server uses **prefix-based** redirect URI matching. If you register `https://example.com/callback` as a redirect URI, all of these will be accepted:
-
-- `https://example.com/callback`
-- `https://example.com/callback/`
-- `https://example.com/callback?code=abc&state=xyz`
-
-The origin (scheme + host + port) must match exactly.
-
-## Main Methods
-
-### `login(options?)`
-
-Starts login, or completes it automatically if the current URL already contains OAuth callback params.
-
-### `init(options?)`
-
-Best for browser page load.
-
-It checks the current URL and finishes the callback automatically when needed.
-
-### `handleCallback(callbackUrl?, options?)`
-
-Manual callback handling.
-
-Use this when you want to process a specific URL or server request yourself.
-
-### `getAuthorizationUrl(options?)`
-
-Returns the authorization request data without redirecting.
-
-### `getTokens()`
-
-Returns stored tokens or `null`.
-
-### `refreshTokens()`
-
-Uses the refresh token, if available.
-
-### `getUserInfo()`
-
-Calls the user info endpoint using the current access token.
-
-### `logout(options?)`
-
-Clears tokens and optionally revokes them.
-
-### `getAuthenticatedFetch()`
-
-Returns a fetch wrapper that injects the bearer token automatically.
-
-## Events
-
-```js
-oauth.on('loginRequest', (authData) => {
-  console.log(authData.url);
-});
-
-oauth.on('login', (tokens) => {
-  console.log('Logged in', tokens);
-});
-
-oauth.on('tokenRefresh', (tokens) => {
-  console.log('Refreshed', tokens);
-});
-
-oauth.on('tokenExpired', () => {
-  console.log('Refreshing soon');
-});
-
-oauth.on('logout', () => {
-  console.log('Logged out');
-});
-
-oauth.on('error', (error) => {
-  console.error(error);
-});
-```
-
-## Manual Flow Example
-
-```js
+```javascript
 const oauth = new ZenuxOAuth({
   clientId: 'your-client-id',
-  redirectUri: 'https://your-app.com/auth/callback'
+  clientSecret: 'your-client-secret', // Backend only! Never in frontend!
+  redirectUri: 'https://your-app.com/callback',
+  scopes: 'openid profile email discord:profile',
+  theme: 'dark', // 'auto', 'light', or 'dark'
+  usePKCE: true, // Defaults to true (S256 PKCE)
+  validateState: true,
+  autoRefresh: true, // Automatically refreshes expired tokens
+  debug: false
 });
-
-const authData = await oauth.login({ mode: 'manual' });
-console.log(authData.url);
-console.log(authData.state);
-console.log(authData.codeVerifier);
 ```
 
-Later:
+### Options Reference
 
-```js
-const tokens = await oauth.handleCallback('https://your-app.com/auth/callback?code=abc&state=xyz');
-```
+| Option | Required | Default | Description |
+| --- | --- | --- | --- |
+| `clientId` | **Yes** | - | OAuth Application Client ID from Zenuxs Dashboard |
+| `clientSecret` | No (Required for server) | `null` | Confidential secret for backend token exchange. Keep secret! |
+| `redirectUri` | No | current page | Redirect URI matching your Zenuxs application registration |
+| `scopes` / `scope` | No | `openid profile email` | Requested OAuth scopes (space-separated) |
+| `theme` | No | `auto` | Theme for UI elements (`auto`, `light`, `dark`) |
+| `usePKCE` | No | `true` | Enables PKCE (S256). Highly recommended. |
+| `validateState` | No | `true` | Validates CSRF state parameter |
+| `autoRefresh` | No | `false` | Automatically refreshes access tokens before expiration |
+| `debug` | No | `false` | Enables internal debug logging |
 
-## Authenticated Fetch
+---
 
-```js
-const authFetch = oauth.getAuthenticatedFetch();
+## Built-In Methods Summary
 
-const response = await authFetch('https://api.example.com/me');
-const data = await response.json();
-```
+Always use these built-in methods. Do not make direct HTTP requests:
 
-## Supported Scopes
+- `await oauth.login(options)`: Initiates login using `'redirect'` or `'popup'` mode.
+- `await oauth.init()`: Auto-detects callback parameters in current URL and finishes code exchange.
+- `await oauth.handleCallback({ request })`: Backend helper to exchange code for tokens.
+- `await oauth.exchangeCodeForTokens(code, options)`: Explicit code exchange helper.
+- `await oauth.getUserInfo()`: Fetches user profile and requested social claims.
+- `await oauth.refreshTokens()`: Refreshes access token using stored refresh token.
+- `oauth.getTokens()`: Returns currently stored session tokens.
+- `oauth.isAuthenticated()`: Returns `true` if a valid non-expired access token exists.
+- `oauth.getAuthenticatedFetch()`: Returns a `fetch` wrapper that automatically injects the `Authorization: Bearer <token>` header.
+- `oauth.logout()`: Clears local session and stored tokens.
 
-```js
-console.log(ZenuxOAuth.supportedScopes);
-```
-
-Default scopes:
-
-```txt
-openid profile email
-```
-
-## Examples
-
-- Browser same-page demo: `exmaples/browser/index.html`
-- Browser dedicated callback demo: `exmaples/browser/callback.html`
-- Express same-route demo: `exmaples/node/express-same-route.js`
-- `testlogin.html` for a very small same-page setup
-
-Serve the browser examples over `http://` or `https://`, not `file://`.
-
-## Notes
-
-- Keep secrets on the backend only
-- Verify state unless you have a very specific reason not to
-- Prefer the default same-page flow unless your app needs a dedicated callback route
-- `popup` and `ui` both support automatic callback completion
-- For direct Google, Discord, or GitHub login, popup mode is usually the safest UX
-
-## Social API Wrappers
-
-The SDK provides helper methods for interacting with users' connected social accounts (Twitter/X, LinkedIn, YouTube, Facebook, Instagram, etc.).
-
-```js
-const oauth = new ZenuxOAuth({ clientId: 'your-client-id' });
-await oauth.login();
-
-// Access social providers
-const x = oauth.x();
-
-// Listen to events on this specific provider
-x.on('post_created', (event) => {
-    console.log(`Successfully created a post on ${event.provider}!`, event.data);
-});
-
-// Get user data from provider
-const userData = await x.getData();
-
-// Get posts
-const posts = await x.getPost();
-
-// Create a post
-await x.createPost({ message: 'Hello from Zenuxs API!' });
-
-// Get analytics
-const analytics = await x.analytics();
-```
-
-### Supported Providers
-- `oauth.x()` or `oauth.twitter()`
-- `oauth.linkedin()`
-- `oauth.youtube()`
-- `oauth.facebook()`
-- `oauth.instagram()`
+---
 
 ## License
 

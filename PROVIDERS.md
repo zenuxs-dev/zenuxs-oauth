@@ -1,5 +1,15 @@
 # Zenuxs OAuth — Social Providers Guide
 
+> [!CRITICAL]
+> ## ⚠️ STRICT RULE FOR DEVELOPERS & AI AGENTS: USE INBUILT SDK FUNCTIONS ONLY
+> **DO NOT write manual HTTP requests, raw fetch/axios calls, or custom OAuth endpoints** to Discord, Google, GitHub, or Zenuxs internal APIs. Direct API calls are broken and unsupported.
+>
+> **ALWAYS use the SDK built-in methods:**
+> - Request proper Zenuxs scopes: `openid profile email discord:profile discord:guilds discord:join_server:<target>`
+> - Fetch user profile & social claims: `await oauth.getUserInfo()`
+> - Use the provider helper objects: `oauth.discord()`, `oauth.github()`, `oauth.google()`, etc.
+
+
 Each social provider is accessed through `oauth.<provider>()` and returns a helper object you can use to fetch profile data, interact with the provider's API, and listen for events.
 
 All methods are async and return Promises.
@@ -24,10 +34,23 @@ All methods are async and return Promises.
 
 ## 1. Discord (`oauth.discord()`)
 
-### Required OAuth Scopes
+### Required Zenuxs OAuth Scopes
+```text
+openid profile email discord:profile discord:guilds discord:join_server:<target>
 ```
-identify email guilds
-```
+
+- `discord` or `discord:profile`: Grants access to user Discord ID, username, discriminator, avatar, and email.
+- `discord:guilds`: Grants access to the list of Discord servers the user belongs to (`userInfo.discord_guilds`).
+- `discord:join_server:<target>`: **Automatically adds the user to your Discord server** upon authorization approval (e.g. `discord:join_server:1289796285678882847` or `discord:join_server:https://discord.gg/your-invite`). Zero manual Discord API code needed!
+
+> [!TIP]
+> **Getting Discord Profile Data:** The most reliable way to get user profile data is via `await oauth.getUserInfo()`:
+> ```javascript
+> const userInfo = await oauth.getUserInfo();
+> console.log(userInfo.discord); // { id: "12345", username: "player1", avatar: "...", email: "..." }
+> console.log(userInfo.discord_guilds); // [{ id: "987", name: "Gaming Server", ... }]
+> console.log(userInfo.discord_join_server); // true
+> ```
 
 ### Methods
 
@@ -88,10 +111,21 @@ discord.on('message_sent',    (data) => console.log('Message:', data));
 
 ## 2. GitHub (`oauth.github()`)
 
-### Required OAuth Scopes
+### Required Zenuxs OAuth Scopes
+```text
+openid profile email github:profile github:repos github:commit
 ```
-user:email read:user repo
-```
+
+- `github` or `github:profile`: Access GitHub profile details (`userInfo.github`).
+- `github:repos`: Access user repository list (`userInfo.github_repos`).
+- `github:commit`: Commit capabilities.
+
+> [!TIP]
+> **Getting GitHub Profile Data:**
+> ```javascript
+> const userInfo = await oauth.getUserInfo();
+> console.log(userInfo.github); // { login: "octocat", id: 1, avatar_url: "...", name: "Monalisa" }
+> ```
 
 ### Methods
 
@@ -149,10 +183,19 @@ github.on('issue_created',   (data) => console.log('Issue:', data));
 
 ## 3. Google (`oauth.google()`)
 
-### Required OAuth Scopes
+### Required Zenuxs OAuth Scopes
+```text
+openid profile email google:profile
 ```
-openid profile email https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.send
-```
+
+- `google` or `google:profile`: Access Google user ID, email, name, and profile picture (`userInfo.google`).
+
+> [!TIP]
+> **Getting Google Profile Data:**
+> ```javascript
+> const userInfo = await oauth.getUserInfo();
+> console.log(userInfo.google); // { id: "104...", email: "user@gmail.com", name: "John Doe", avatar: "..." }
+> ```
 
 ### Methods
 
