@@ -10,7 +10,7 @@ const DEFAULT_STORAGE_PREFIX = 'zenux_oauth_';
 const DEFAULT_SCOPE = 'openid profile email';
 const DEFAULT_MESSAGE_PREFIX = 'zenux_oauth';
 
-const CALLBACK_QUERY_KEYS = ['code', 'state', 'error', 'error_description'];
+const CALLBACK_QUERY_KEYS = ['code', 'state', 'error', 'error_description', 'scope', 'client_id', 'session_state', 'iss'];
 
 // ==================== ENVIRONMENT DETECTION ====================
 const isReactNative = typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
